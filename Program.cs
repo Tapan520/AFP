@@ -1,5 +1,9 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// Railway injects PORT at runtime — bind to it so the service is reachable
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
@@ -11,7 +15,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// Note: HTTPS redirection is intentionally omitted — Railway terminates TLS
+// at the edge proxy, so enforcing it inside the container causes redirect loops.
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
@@ -19,13 +24,11 @@ app.MapRazorPages();
 
 // ?? Proxy base URL ????????????????????????????????????????????????????????????
 // Dev  ? local Node/Express on port 3000
-// Prod ? Railway backend
-// API_BASE in afp-core.js is set to "" so all browser calls come here first,
-// then we forward to whichever backend is active.  This guarantees the JWT
-// is signed and verified by the SAME backend (fixes "Invalid or expired token").
-var backendBase = app.Environment.IsDevelopment()
-    ? "http://localhost:3000"
-    : "https://web-production-06875.up.railway.app";
+// Prod ? Railway backend (override with BACKEND_URL env var on Railway)
+var backendBase = Environment.GetEnvironmentVariable("BACKEND_URL")
+    ?? (app.Environment.IsDevelopment()
+        ? "http://localhost:3000"
+        : "https://web-production-06875.up.railway.app");
 
 // ?? Shared proxy helpers ??????????????????????????????????????????????????????
 static HttpClient MakeClient(IHttpClientFactory f, HttpRequest req)
