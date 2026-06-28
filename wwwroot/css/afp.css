@@ -1,0 +1,267 @@
+/* ??? CSS VARIABLES ???????????????????????????????????????????? */
+:root {
+  --or:#E8670A; --or-d:#C25500; --or-p:#FFF3E8;
+  --bl:#1E6FD9; --bl-p:#EBF3FF;
+  --sf:#FFFFFF; --sf2:#F7F5F2; --dk:#1A1814;
+  --tx:#1A1814; --tx2:#5A564F; --tx3:#9A958C; --bd:#E5E0D8;
+  --ok:#16A34A; --ok-p:#D1FAE5;
+  --wn:#D97706; --wn-p:#FEF3C7;
+  --er:#DC2626; --er-p:#FEE2E2;
+}
+
+/* ??? RESET ???????????????????????????????????????????????????? */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--sf2);color:var(--tx);min-height:100vh;}
+input,select,textarea,button{font-family:inherit;}
+button{cursor:pointer;border:none;background:none;}
+a{text-decoration:none;}
+::-webkit-scrollbar{width:6px;}
+::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px;}
+
+/* ??? APP SHELL ???????????????????????????????????????????????? */
+.afp-app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;background:var(--sf2);position:relative;}
+.screen{flex:1;display:flex;flex-direction:column;min-height:100vh;}
+.scroll{flex:1;overflow-y:auto;}
+
+/* ??? TOPBAR ??????????????????????????????????????????????????? */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:13px 17px;background:#fff;border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:100;}
+.topbar-left{display:flex;align-items:center;gap:10px;}
+.topbar-logo{width:34px;height:34px;background:var(--or);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.topbar-title{font-size:15px;font-weight:600;color:var(--tx);}
+.topbar-dark{background:var(--dk);border-color:#333;}
+.topbar-dark .topbar-title{color:#fff;}
+.back-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;color:var(--tx);flex-shrink:0;}
+.icon-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--bd);background:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;flex-shrink:0;}
+
+/* ??? BOTTOM NAV ??????????????????????????????????????????????? */
+.bnav{display:flex;background:#fff;border-top:1px solid var(--bd);padding:4px 0 8px;flex-shrink:0;}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:5px 0;cursor:pointer;gap:2px;color:inherit;}
+.bnav-icon{font-size:22px;}
+.bnav-lbl{font-size:10px;font-weight:600;color:var(--tx3);}
+.bnav-item.active .bnav-lbl{color:var(--or);}
+
+/* ??? BUTTONS ?????????????????????????????????????????????????? */
+.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;border-radius:13px;padding:13px 18px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;border:none;text-decoration:none;}
+.btn:disabled,.btn.loading{opacity:.6;cursor:not-allowed;pointer-events:none;}
+.btn:hover:not(:disabled):not(.loading){opacity:.88;}
+.btn-primary{background:var(--or);color:#fff;}
+.btn-primary:hover{color:#fff;}
+.btn-outline{background:transparent;color:var(--or);border:2px solid var(--or)!important;}
+.btn-outline:hover{color:var(--or);}
+.btn-ghost{background:transparent;color:var(--or);}
+.btn-ghost:hover{color:var(--or);}
+.btn-danger{background:var(--er);color:#fff;}
+.btn-danger:hover{color:#fff;}
+.btn-success{background:var(--ok);color:#fff;}
+.btn-success:hover{color:#fff;}
+.btn-dark{background:var(--dk);color:#fff;}
+.btn-dark:hover{color:#fff;}
+.btn-small{padding:10px 14px;font-size:13px;}
+.btn-w-auto{width:auto;}
+
+/* ??? FIELDS ??????????????????????????????????????????????????? */
+.field{margin-bottom:13px;}
+.field-label{font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;display:block;}
+.field-input{width:100%;padding:12px 13px;border-radius:8px;border:1.5px solid var(--bd);background:#fff;font-size:15px;color:var(--tx);outline:none;transition:border-color .15s;}
+.field-input:focus{border-color:var(--or);box-shadow:none;}
+.field-input::placeholder{color:var(--tx3);}
+.field-input:disabled{background:var(--sf2);color:var(--tx2);}
+textarea.field-input{resize:vertical;min-height:80px;}
+
+/* ??? PICKER ??????????????????????????????????????????????????? */
+.picker-wrap{position:relative;margin-bottom:13px;}
+.picker-btn{width:100%;padding:12px 13px;border-radius:8px;border:1.5px solid var(--bd);background:#fff;font-size:15px;color:var(--tx);text-align:left;display:flex;justify-content:space-between;align-items:center;cursor:pointer;}
+.picker-btn.placeholder{color:var(--tx3);}
+.picker-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:500;background:#fff;border:1px solid var(--bd);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;display:none;}
+.picker-option{padding:12px 13px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--bd);color:var(--tx);}
+.picker-option:hover{background:var(--or-p);}
+.picker-option.selected{background:var(--or-p);color:var(--or);}
+.picker-option:last-child{border-bottom:none;}
+
+/* ??? CARDS ???????????????????????????????????????????????????? */
+.card{background:#fff;border-radius:15px;border:1px solid var(--bd);padding:14px;margin-bottom:10px;}
+.pet-card{background:#fff;border-radius:15px;border:1px solid var(--bd);padding:14px;display:flex;align-items:center;gap:13px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);cursor:pointer;transition:transform .12s;color:inherit;}
+.pet-card:hover{transform:translateY(-1px);color:inherit;}
+.pet-avatar{width:54px;height:54px;border-radius:13px;background:var(--or-p);display:flex;align-items:center;justify-content:center;font-size:26px;border:2px solid var(--bd);flex-shrink:0;}
+.pet-info{flex:1;min-width:0;}
+.pet-name{font-size:15px;font-weight:600;color:var(--tx);margin-bottom:2px;}
+.pet-sub{font-size:12px;color:var(--tx2);margin-bottom:2px;}
+.pet-id-lbl{font-size:11px;color:var(--tx3);font-family:monospace;}
+
+/* ??? BADGES ??????????????????????????????????????????????????? */
+.badge{display:inline-flex;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
+.badge-ok{background:var(--ok-p);color:#065F46;}
+.badge-pn{background:var(--wn-p);color:#92400E;}
+.badge-rj{background:var(--er-p);color:#991B1B;}
+.badge-in{background:var(--bl-p);color:#0A4FAA;}
+.badge-ex{background:#FEF3C7;color:#B45309;}
+.badge-or{background:var(--or-p);color:var(--or-d);}
+
+/* ??? ALERTS ??????????????????????????????????????????????????? */
+.alert-box{display:flex;gap:8px;align-items:flex-start;border-radius:8px;padding:12px;margin-bottom:13px;border-width:1px;border-style:solid;}
+.alert-info{background:var(--bl-p);border-color:#BAD6F7;color:#0A4FAA;}
+.alert-warn{background:var(--wn-p);border-color:#FDE68A;color:#92400E;}
+.alert-ok{background:var(--ok-p);border-color:#A7F3D0;color:#065F46;}
+.alert-err{background:var(--er-p);border-color:#FCA5A5;color:#991B1B;}
+.alert-box p{font-size:13px;line-height:19px;margin:0;}
+
+/* ??? INFO ROW ????????????????????????????????????????????????? */
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--bd);}
+.info-row:last-child{border-bottom:none;}
+.info-label{font-size:13px;color:var(--tx2);font-weight:500;}
+.info-value{font-size:13px;font-weight:600;color:var(--tx);text-align:right;max-width:58%;}
+
+/* ??? STAT GRID ???????????????????????????????????????????????? */
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:17px;}
+.scard{background:#fff;border-radius:15px;border:1px solid var(--bd);padding:13px;}
+.scard-icon{font-size:22px;margin-bottom:2px;}
+.scard-val{font-size:24px;font-weight:700;color:var(--tx);}
+.scard-lbl{font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+
+/* ??? FEATURE GRID ????????????????????????????????????????????? */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.fcard{background:#fff;border-radius:15px;border:1px solid var(--bd);padding:14px;cursor:pointer;transition:transform .12s;color:inherit;}
+.fcard:hover{transform:translateY(-2px);color:inherit;}
+.fcard-icon{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:8px;}
+.fcard-lbl{font-size:12px;font-weight:600;color:var(--tx);}
+
+/* ??? TABS ????????????????????????????????????????????????????? */
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--bd);flex-shrink:0;}
+.tab{flex:1;padding:12px 4px;text-align:center;font-size:11px;font-weight:600;color:var(--tx2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;background:none;border-left:none;border-right:none;border-top:none;}
+.tab.active{color:var(--or);border-bottom-color:var(--or);}
+
+/* ??? UPLOAD BOX ??????????????????????????????????????????????? */
+.ubox{border:2px dashed var(--bd);border-radius:8px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--sf2);cursor:pointer;transition:all .15s;margin-bottom:13px;}
+.ubox:hover{border-color:var(--or);background:var(--or-p);}
+.ubox.done{border-color:var(--ok);background:var(--ok-p);border-style:solid;}
+.ubox-icon{font-size:26px;}
+.ubox-text{font-size:13px;color:var(--tx2);}
+
+/* ??? METER BAR ???????????????????????????????????????????????? */
+.meter-bar{height:7px;background:var(--sf2);border-radius:4px;overflow:hidden;margin-top:5px;}
+.meter-fill{height:100%;background:var(--or);border-radius:4px;transition:width .4s;}
+
+/* ??? CITY PILL ???????????????????????????????????????????????? */
+.cpill{display:inline-flex;align-items:center;background:var(--or-p);padding:3px 11px;border-radius:999px;margin-bottom:11px;}
+.cpill-tx{font-size:12px;font-weight:600;color:var(--or-d);}
+
+/* ??? VAX ALERT ???????????????????????????????????????????????? */
+.vax-alert{display:flex;align-items:center;gap:9px;padding:12px;background:var(--wn-p);border-radius:8px;border:1px solid #FDE68A;margin:0 17px 13px;cursor:pointer;}
+.vax-alert-danger{background:var(--er-p);border-color:#FCA5A5;}
+
+/* ??? SECTION HEADER ??????????????????????????????????????????? */
+.sec-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px;}
+.sec-title{font-size:15px;font-weight:700;color:var(--tx);}
+.sec-action{font-size:13px;color:var(--or);font-weight:600;cursor:pointer;background:none;border:none;}
+
+/* ??? TOAST ???????????????????????????????????????????????????? */
+.afp-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--dk);color:#fff;padding:11px 20px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.25);transition:all .25s;max-width:85vw;text-align:center;}
+.afp-toast.hidden{opacity:0;transform:translateX(-50%) translateY(12px);pointer-events:none;}
+
+/* ??? MODAL ???????????????????????????????????????????????????? */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:800;display:flex;align-items:flex-end;justify-content:center;}
+.modal-sheet{background:#fff;border-radius:22px 22px 0 0;padding:20px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;}
+.modal-handle{width:34px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto 17px;}
+
+/* ??? QR CODE ?????????????????????????????????????????????????? */
+.qr-wrap{background:#fff;padding:12px;border-radius:12px;border:2px solid var(--bd);display:inline-block;margin-bottom:14px;}
+.qr-row{display:flex;}
+.qr-cell{width:13px;height:13px;}
+
+/* ??? SPLASH ??????????????????????????????????????????????????? */
+.splash{background:var(--or);flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;min-height:100vh;position:relative;}
+.splash-logo{width:96px;height:96px;border-radius:28px;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:24px;}
+.splash h1{font-size:32px;font-weight:700;color:#fff;text-align:center;margin-bottom:10px;}
+.splash p{font-size:14px;color:rgba(255,255,255,.82);text-align:center;line-height:22px;margin-bottom:48px;}
+.splash-btns{width:100%;display:flex;flex-direction:column;gap:12px;}
+.splash-footer{position:absolute;bottom:24px;font-size:11px;color:rgba(255,255,255,.4);}
+.splash-staff-link{margin-top:10px;text-align:center;padding:10px;cursor:pointer;color:rgba(255,255,255,.75);font-size:14px;font-weight:500;background:none;border:none;display:block;transition:color .15s,text-decoration .15s;}
+.splash-staff-link:hover{color:#fff;text-decoration:underline;}
+
+/* ??? AUTH ????????????????????????????????????????????????????? */
+.auth-h{font-size:22px;font-weight:700;color:var(--tx);margin-bottom:4px;}
+.auth-sub{font-size:14px;color:var(--tx2);margin-bottom:18px;}
+.auth-sw{display:flex;justify-content:center;align-items:center;margin-top:18px;gap:4px;}
+.auth-sw span{font-size:14px;color:var(--tx2);}
+.auth-sw a{color:var(--or);font-weight:600;font-size:14px;}
+.auth-sw a:hover{color:var(--or-d);}
+
+/* ??? ADMIN HEADER ????????????????????????????????????????????? */
+.admin-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 17px;background:var(--dk);border-bottom:1px solid #333;flex-shrink:0;}
+.admin-hdr-left{display:flex;align-items:center;gap:10px;}
+.admin-logo{width:34px;height:34px;border-radius:9px;background:rgba(232,103,10,.3);display:flex;align-items:center;justify-content:center;font-size:17px;}
+.admin-title{font-size:15px;font-weight:600;color:#fff;}
+
+/* ??? PROFILE HEADER ??????????????????????????????????????????? */
+.profile-hdr{background:var(--or);padding:26px 18px;display:flex;flex-direction:column;align-items:center;gap:8px;flex-shrink:0;}
+.profile-avatar{width:80px;height:80px;border-radius:40px;background:rgba(255,255,255,.2);border:3px solid rgba(255,255,255,.42);display:flex;align-items:center;justify-content:center;font-size:36px;}
+.profile-name{font-size:18px;font-weight:700;color:#fff;}
+.profile-id{font-size:12px;color:rgba(255,255,255,.7);font-family:monospace;}
+
+/* ??? CHIPS ???????????????????????????????????????????????????? */
+.chips{display:flex;gap:7px;overflow-x:auto;padding:9px 0;scrollbar-width:none;}
+.chips::-webkit-scrollbar{display:none;}
+.chip{padding:6px 11px;border-radius:999px;border:1.5px solid var(--bd);background:#fff;font-size:12px;font-weight:600;color:var(--tx2);cursor:pointer;white-space:nowrap;}
+.chip.active{background:var(--or);border-color:var(--or);color:#fff;}
+
+/* ??? SEARCH ??????????????????????????????????????????????????? */
+.search-wrap{position:relative;}
+.search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:15px;color:var(--tx3);pointer-events:none;}
+.search-wrap .field-input{padding-left:34px;}
+
+/* ??? DIR CARD ????????????????????????????????????????????????? */
+.dir-card{display:flex;align-items:center;gap:12px;padding:14px;background:#fff;border-radius:15px;border:1px solid var(--bd);margin-bottom:10px;cursor:pointer;transition:transform .12s;color:inherit;}
+.dir-card:hover{transform:translateY(-1px);color:inherit;}
+.dir-card-avatar{width:50px;height:50px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;}
+
+/* ??? BREADCRUMB ??????????????????????????????????????????????? */
+.breadcrumb{display:flex;align-items:center;gap:6px;margin-bottom:14px;}
+.breadcrumb button{background:none;border:none;font-size:13px;cursor:pointer;color:var(--or);padding:0;}
+.breadcrumb button.active{color:var(--tx);font-weight:700;}
+.breadcrumb-sep{color:var(--tx3);font-size:13px;}
+
+/* ??? HELPERS ?????????????????????????????????????????????????? */
+.p-18{padding:18px;}
+.pb-32{padding-bottom:32px;}
+.mt-8{margin-top:8px;}
+.mt-13{margin-top:13px;}
+.mb-0{margin-bottom:0;}
+.gap-8{display:flex;flex-direction:column;gap:8px;}
+.d-row{display:flex;gap:10px;align-items:flex-start;}
+.d-row>*{flex:1;}
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;}
+.center-icon{font-size:36px;margin-bottom:12px;}
+.center-text{font-size:14px;color:var(--tx2);}
+.mono{font-family:monospace;}
+.fee-row{display:flex;justify-content:space-between;align-items:center;padding:13px;border:1.5px solid var(--bd);border-radius:8px;background:var(--sf2);margin-bottom:12px;}
+.fee-lbl{color:var(--tx2);font-size:14px;}
+.fee-val{font-size:20px;font-weight:700;color:var(--or);}
+.checkbox-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;cursor:pointer;}
+.checkbox{width:22px;height:22px;border-radius:4px;border:2px solid var(--or);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s;}
+.checkbox.checked{background:var(--or);}
+.checkbox-lbl{font-size:14px;color:var(--tx);}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;}
+.mini-spinner{border-color:rgba(232,103,10,.3)!important;border-top-color:var(--or)!important;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.pet-photo-ring{position:relative;display:inline-block;}
+.pet-photo-edit{position:absolute;bottom:-4px;right:-4px;background:var(--or);border-radius:999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:1.5px solid #fff;font-size:10px;color:#fff;}
+
+/* utility */
+.d-none{display:none!important;}
+
+/* ?? PAYMENT MODAL ?????????????????????????????????????????????????????? */
+.pay-summary-card{background:var(--or-p);border:1.5px solid #FDD9B0;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+.pay-benefits{background:var(--sf2);border-radius:10px;padding:11px 14px;margin-bottom:14px;}
+.pay-benefit-row{font-size:13px;color:var(--tx);padding:4px 0;line-height:19px;}
+.pay-method-chip.active{background:var(--or);border-color:var(--or);color:#fff;}
+
+/* ?? USER MANAGEMENT ???????????????????????????????????????????????????? */
+.um-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.um-tabs{border-bottom:1px solid var(--bd);margin-bottom:13px;overflow-x:auto;flex-wrap:nowrap;}
+.um-card{margin-bottom:10px;transition:transform .12s;}
+.um-card:hover{transform:translateY(-1px);}
+.um-avatar{width:42px;height:42px;border-radius:12px;background:var(--or-p);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.um-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+.um-field-err{color:var(--er);font-size:11px;font-weight:600;margin-top:3px;display:none;}
+.um-self-tag{font-size:11px;color:var(--tx3);font-weight:400;margin-left:4px;}
+

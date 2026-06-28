@@ -1,0 +1,26 @@
+## .NET / ASP.NET Core
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.swp
+
+## Rider / JetBrains
+.idea/
+
+## VS Code
+.vscode/
+
+## Publish output
+publish/
+out/
+
+## Secrets / env
+appsettings.Development.json
+*.env
+.env
+
+## OS
+.DS_Store
+Thumbs.db

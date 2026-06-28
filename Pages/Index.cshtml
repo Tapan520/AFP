@@ -1,0 +1,869 @@
+@page
+@model IndexModel
+@{
+    Layout = "_AppLayout";
+}
+
+<div class="afp-app">
+
+    <!-- --- SCREEN: SPLASH ---------------------------------------------- -->
+    <div id="screen-splash" class="afp-screen screen splash d-none">
+        <div class="splash-logo">&#x1F43E;</div>
+        <h1>All For Pets</h1>
+        <p>Register, manage and track your pets<br>with your city municipality</p>
+        <div class="splash-btns">
+            <button class="btn btn-dark" onclick="AFP.go('register')">&#x1F436;&nbsp; Register</button>
+            <button class="btn btn-dark" onclick="AFP.go('login')">&#x1F511;&nbsp; Login</button>
+            <button class="splash-staff-link" onclick="AFP.go('adminLogin')">&#x1F3DB;&#xFE0F;&nbsp; Municipal Staff Login</button>
+        </div>
+        <!-- <div class="splash-footer">Jaipur � Delhi � Mumbai</div>-->
+    </div>
+
+    <!-- --- SCREEN: LOGIN ----------------------------------------------- -->
+    <div id="screen-login" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('splash')">&#x2190;</button>
+                <span class="topbar-title">Login</span>
+            </div>
+            <div style="width:34px"></div>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="auth-h">Welcome back</div>
+            <div class="auth-sub">Login to manage your pets</div>
+            <div id="login-err"></div>
+            <form id="login-form" novalidate>
+                <div class="field">
+                    <label class="field-label">Mobile or Email</label>
+                    <input id="login-id" class="field-input" type="text" placeholder="Mobile or email" autocomplete="username" />
+                </div>
+                <div class="field">
+                    <label class="field-label">Password</label>
+                    <input id="login-pw" class="field-input" type="password" placeholder="Password" autocomplete="current-password" />
+                </div>
+                <button id="login-btn" type="submit" class="btn btn-primary">Login &#x2192;</button>
+            </form>
+            <div class="auth-sw">
+                <span>New here?&nbsp;</span>
+                <a href="javascript:void(0)" onclick="AFP.go('register')">Create account</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: REGISTER -------------------------------------------- -->
+    <div id="screen-register" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('splash')">&#x2190;</button>
+                <span class="topbar-title">Create Account</span>
+            </div>
+            <div style="width:34px"></div>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="alert-box alert-info"><span>&#x2139;&#xFE0F;</span><p>Your account links to your ward for pet licensing.</p></div>
+            <div id="reg-err"></div>
+            <form id="reg-form" novalidate>
+                <div class="field"><label class="field-label">Full name *</label><input id="reg-name" class="field-input" placeholder="Tapan Singh" /></div>
+                <div class="field"><label class="field-label">Mobile *</label><input id="reg-mob" class="field-input" type="tel" placeholder="9810******" /></div>
+                <div class="field"><label class="field-label">Email *</label><input id="reg-email" class="field-input" type="email" placeholder="user@email.com" /></div>
+                <div class="field"><label class="field-label">Address *</label><input id="reg-addr" class="field-input" placeholder="House No, Street, Area" /></div>
+                <div class="field">
+                    <label class="field-label">City *</label>
+                    <select id="reg-city" class="field-input"><option value="">Select city…</option></select>
+                </div>
+                <div class="field">
+                    <label class="field-label">Nigam *</label>
+                    <select id="reg-nigam" class="field-input"><option value="">Select nigam…</option></select>
+                </div>
+                <div class="field" id="reg-zone-field" style="display:none">
+                    <label class="field-label">Zone *</label>
+                    <select id="reg-zone" class="field-input"><option value="">Select zone…</option></select>
+                </div>
+                <div class="field" id="reg-ward-field" style="display:none">
+                    <label class="field-label">Ward *</label>
+                    <select id="reg-ward" class="field-input"><option value="">Select ward…</option></select>
+                </div>
+                <div class="field"><label class="field-label">Password *</label><input id="reg-pw" class="field-input" type="password" placeholder="Create a password" autocomplete="new-password" /></div>
+                <button id="reg-btn" type="submit" class="btn btn-primary">Create Account &#x2192;</button>
+            </form>
+            <div class="auth-sw">
+                <span>Have account?&nbsp;</span>
+                <a href="javascript:void(0)" onclick="AFP.go('login')">Login</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: ADMIN LOGIN ------------------------------------------ -->
+    <div id="screen-adminLogin" class="afp-screen screen d-none">
+        <div style="background:var(--dk);padding:28px 18px;text-align:center;flex-shrink:0">
+            <div style="width:72px;height:72px;border-radius:20px;background:rgba(232,103,10,.2);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 10px">&#x1F3DB;&#xFE0F;</div>
+            <div style="color:#fff;font-size:20px;font-weight:700">Municipal Portal</div>
+            <div style="color:#9A958C;font-size:13px;margin-top:4px">For authorised municipal officers only</div>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div id="al-err"></div>
+            <form id="adminlogin-form" novalidate>
+                <div class="field"><label class="field-label">Staff ID / Email</label><input id="al-id" class="field-input" placeholder="staff@jaipur.gov.in" /></div>
+                <div class="field"><label class="field-label">Password</label><input id="al-pw" class="field-input" type="password" placeholder="Password" /></div>
+                <button id="al-btn" type="submit" class="btn btn-primary">Login to Municipal Portal &#x2192;</button>
+            </form>
+            <div style="height:10px"></div>
+            <button class="btn btn-ghost" onclick="AFP.go('splash')">&#x2190; Back to Citizen App</button>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: DASHBOARD -------------------------------------------- -->
+    <div id="screen-dashboard" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-logo">&#x1F43E;</div>
+                <span class="topbar-title">All For Pets</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px"><button class="icon-btn" onclick="AFP.tst('&#x1F514; No new notifications')">&#x1F514;</button>
+                <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+            </div>
+        </div>
+        <div id="dashboard-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: SEARCH PET ------------------------------------------- -->
+    <div id="screen-searchPet" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-logo">&#x1F43E;</div>
+                <span class="topbar-title">Search Pet</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+            <div class="search-wrap">
+                <span class="search-icon">&#x1F50D;</span>
+                <input id="searchpet-q" class="field-input" placeholder="Pet name, owner, Pet ID�"
+                    oninput="doSearchPet()" style="padding-left:34px" />
+            </div>
+            <div class="chips">
+                <button class="chip searchpet-chip active" data-flt="all" onclick="setSearchFilter(this,'all')">All</button>
+                <button class="chip searchpet-chip" data-flt="dog" onclick="setSearchFilter(this,'dog')">&#x1F436; Dogs</button>
+                <button class="chip searchpet-chip" data-flt="cat" onclick="setSearchFilter(this,'cat')">&#x1F431; Cats</button>
+                <button class="chip searchpet-chip" data-flt="other" onclick="setSearchFilter(this,'other')">&#x1F43E; Others</button>
+            </div>
+        </div>
+        <div id="search-results" class="scroll" style="padding:13px"></div>
+        <div id="search-body"></div>
+    </div>
+
+    <!-- --- SCREEN: PET METER ------------------------------------------- -->
+    <div id="screen-petMeter" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-logo">&#x1F43E;</div>
+                <span class="topbar-title">&#x1F4CA; Pet Meter</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="meter-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: PROFILE ---------------------------------------------- -->
+    <div id="screen-profile" class="afp-screen screen d-none">
+        <div class="profile-hdr">
+            <div class="profile-avatar">&#x1F464;</div>
+            <div id="profile-name" class="profile-name"></div>
+            <div id="profile-id" class="profile-id"></div>
+            <span class="badge badge-ok">&#x2705; Verified owner</span>
+        </div>
+        <div class="tabs">
+            <button class="tab active" data-tab="details" onclick="profileSetTab('details')">My Details</button>
+            <button class="tab" data-tab="pets" onclick="profileSetTab('pets')">My Pets</button>
+            <button class="tab" data-tab="docs" onclick="profileSetTab('docs')">Documents</button>
+        </div>
+        <div id="profile-body" class="scroll p-18 pb-32"></div>
+        <div class="bnav">
+            <div class="bnav-item" onclick="AFP.go('dashboard')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+            <div class="bnav-item" onclick="AFP.go('searchPet')"><span class="bnav-icon">&#x1F50D;</span><span class="bnav-lbl">Search</span></div>
+            <div class="bnav-item" onclick="AFP.go('petMeter')"><span class="bnav-icon">&#x1F4CA;</span><span class="bnav-lbl">Meter</span></div>
+            <div class="bnav-item active"><span class="bnav-icon">&#x1F464;</span><span class="bnav-lbl">Profile</span></div>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: PET PROFILE ------------------------------------------ -->
+    <div id="screen-petProfile" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Pet Profile</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:17px;padding:18px;background:var(--or-p);border-bottom:1px solid var(--bd);flex-shrink:0">
+            <div class="pet-photo-ring">
+                <div style="width:74px;height:74px;border-radius:18px;background:#fff;display:flex;align-items:center;justify-content:center;border:2px solid var(--bd)">
+                    <span id="petprofile-icon" style="font-size:34px">&#x1F43E;</span>
+                </div>
+            </div>
+            <div style="flex:1">
+                <div id="petprofile-name" style="font-size:20px;font-weight:700;margin-bottom:4px"></div>
+                <div id="petprofile-sub" style="font-size:13px;color:var(--tx2);margin-bottom:7px"></div>
+                <div id="petprofile-badge"></div>
+            </div>
+        </div>
+        <div id="petprofile-vaxbanner" class="vax-alert" style="display:none"></div>
+        <div class="tabs">
+            <button class="tab active" data-tab="details" onclick="petProfileSetTab('details')">Details</button>
+            <button class="tab" data-tab="health" onclick="petProfileSetTab('health')">Health</button>
+            <button class="tab" data-tab="docs" onclick="petProfileSetTab('docs')">Documents</button>
+        </div>
+        <div id="petprofile-body" class="scroll p-18 pb-32"></div>
+    </div>
+
+    <!-- --- SCREEN: NEW PET ---------------------------------------------- -->
+    <div id="screen-newPet" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Register New Pet</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="alert-box alert-info"><span>&#x2139;&#xFE0F;</span><p>Ward officer reviews within 2�3 working days.</p></div>
+            <div id="np-err"></div>
+            <form id="newpet-form" novalidate>
+                <div class="field"><label class="field-label">Pet name *</label><input id="np-name" class="field-input" placeholder="e.g. Bruno" /></div>
+                <div class="d-row">
+                    <div class="field" style="margin-bottom:0">
+                        <label class="field-label">Species *</label>
+                        <select id="np-species" class="field-input">
+                            <option value="dog">Dog</option><option value="cat">Cat</option>
+                            <option value="rabbit">Rabbit</option><option value="bird">Bird</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0">
+                        <label class="field-label">Gender *</label>
+                        <select id="np-gender" class="field-input">
+                            <option value="male">Male</option><option value="female">Female</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="height:13px"></div>
+                <div class="d-row">
+                    <div class="field" style="margin-bottom:0"><label class="field-label">Breed *</label><input id="np-breed" class="field-input" placeholder="e.g. Labrador" /></div>
+                    <div class="field" style="margin-bottom:0"><label class="field-label">Colour *</label><input id="np-colour" class="field-input" placeholder="e.g. Golden" /></div>
+                </div>
+                <div style="height:13px"></div>
+                <div class="field"><label class="field-label">Date of Birth *</label><input id="np-dob" class="field-input" type="date" /></div>
+                <label class="field-label" style="margin-bottom:8px;margin-top:4px;display:block">Upload Documents</label>
+                <div id="np-photo-box" class="ubox" onclick="document.getElementById('np-photo-file').click()">
+                    <input id="np-photo-file" type="file" style="display:none" accept="image/*" onchange="handleNewPetPhoto(this.files[0])">
+                    <div class="ubox-icon">&#x1F4F7;</div><div class="ubox-text">Upload pet photo (JPG/PNG)</div>
+                </div>
+                <div id="np-cert-box" class="ubox" onclick="document.getElementById('np-cert-file').click()">
+                    <input id="np-cert-file" type="file" style="display:none" accept="image/*,application/pdf" onchange="handleNewPetCert(this.files[0])">
+                    <div class="ubox-icon">&#x1F4C4;</div><div class="ubox-text">Upload vaccination certificate (PDF/JPG)</div>
+                </div>
+                <div class="alert-box alert-warn" style="margin-top:8px">
+                    <span>&#x1F6AB;</span>
+                    <p>Payment is temporarily disabled. Your application will be submitted directly for ward approval.</p>
+                </div>
+                <button id="np-btn" type="submit" class="btn btn-primary">&#x1F43E;&nbsp;Register Pet &rarr;</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: RENEW ------------------------------------------------- -->
+    <div id="screen-renew" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Renew Licence</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="alert-box alert-warn"><span>&#x26A0;&#xFE0F;</span><p>Renew before expiry to avoid penalty fees.</p></div>
+            <form id="renew-form" novalidate>
+                <div class="field">
+                    <label class="field-label">Select pet *</label>
+                    <select id="renew-pet" class="field-input"><option value="">Select pet...</option></select>
+                </div>
+                <div id="renew-err"></div>
+                <div id="renew-details" style="display:none"></div>
+                <div class="fee-row">
+                    <div><div style="color:var(--tx2);font-size:13px">Renewal fee</div><div style="font-weight:600">&#x20B9; 150</div></div>
+                    <div style="text-align:right"><div style="color:var(--tx2);font-size:13px">New validity</div><div style="font-weight:600">1 year</div></div>
+                </div>
+                <button id="renew-btn" type="submit" class="btn btn-primary">Renew Licence &#x2192;</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: REPORT PET ------------------------------------------- -->
+    <div id="screen-reportPet" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Report a Pet</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="alert-box alert-warn"><span>&#x26A0;&#xFE0F;</span><p>Report a stray, lost, or unlicensed pet. Ward officer will be notified.</p></div>
+            <form id="rp-form" novalidate>
+                <div class="field">
+                    <label class="field-label">Report type *</label>
+                    <select id="rp-type" class="field-input">
+                        <option value="stray">Stray / abandoned pet</option>
+                        <option value="lost">Lost pet</option>
+                        <option value="unlicensed">Unlicensed pet</option>
+                        <option value="cruelty">Animal cruelty</option>
+                    </select>
+                </div>
+                <div class="field"><label class="field-label">Last seen address *</label><input id="rp-addr" class="field-input" placeholder="Street / landmark" /></div>
+                <div class="field"><label class="field-label">Your mobile *</label><input id="rp-mobile" class="field-input" type="tel" placeholder="+91 98765 43210" /></div>
+                <button id="rp-btn" type="submit" class="btn btn-primary">Submit Report</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: TRANSFER ---------------------------------------------- -->
+    <div id="screen-newOwner" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Transfer Ownership</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div class="scroll p-18 pb-32">
+            <div class="alert-box alert-info"><span>&#x2139;&#xFE0F;</span><p>Transfer requires ward approval. Both owners must be registered.</p></div>
+            <form id="to-form" novalidate>
+                <div class="field">
+                    <label class="field-label">Select pet *</label>
+                    <select id="to-pet" class="field-input"><option value="">Select pet…</option></select>
+                </div>
+                <div class="field"><label class="field-label">New owner's full name *</label><input id="to-name" class="field-input" placeholder="Full name" /></div>
+                <div class="field"><label class="field-label">New owner's mobile *</label><input id="to-mobile" class="field-input" type="tel" placeholder="Registered mobile" /></div>
+                <div class="fee-row">
+                    <span class="fee-lbl">Transfer fee</span>
+                    <span class="fee-val">&#x20B9; 100</span>
+                </div>
+                <button id="to-btn" type="submit" class="btn btn-primary">Submit Transfer &#x2192;</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- --- SCREEN: SEARCH DOCTOR ----------------------------------------- -->
+    <div id="screen-searchDoctor" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Find a Vet</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+            <div class="search-wrap">
+                <span class="search-icon">&#x1F50D;</span>
+                <input id="searchdoc-q" class="field-input" placeholder="Name, clinic, specialization…"
+                    oninput="doSearchDoctor()" style="padding-left:34px" />
+            </div>
+            <div class="chips">
+                <button class="chip searchdoc-chip active" data-city="" onclick="setDoctorFilter(this,'')">All</button>
+                <button class="chip searchdoc-chip" data-city="1" onclick="setDoctorFilter(this,'1')">&#x1F4CD; Jaipur</button>
+                <button class="chip searchdoc-chip" data-city="2" onclick="setDoctorFilter(this,'2')">&#x1F4CD; Delhi</button>
+                <button class="chip searchdoc-chip" data-city="3" onclick="setDoctorFilter(this,'3')">&#x1F4CD; Mumbai</button>
+            </div>
+        </div>
+        <div id="searchdoc-body"></div>
+        <div id="searchdoc-results" class="scroll" style="padding:13px"></div>
+    </div>
+
+    <!-- --- SCREEN: SEARCH SHOP ------------------------------------------- -->
+    <div id="screen-searchShop" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">Pet Food Shops</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+            <div class="search-wrap">
+                <span class="search-icon">&#x1F50D;</span>
+                <input id="searchshop-q" class="field-input" placeholder="Shop name, speciality, area…"
+                    oninput="doSearchShop()" style="padding-left:34px" />
+            </div>
+            <div class="chips">
+                <button class="chip searchshop-chip active" data-city="" onclick="setShopFilter(this,'')">All</button>
+                <button class="chip searchshop-chip" data-city="1" onclick="setShopFilter(this,'1')">&#x1F4CD; Jaipur</button>
+                <button class="chip searchshop-chip" data-city="2" onclick="setShopFilter(this,'2')">&#x1F4CD; Delhi</button>
+                <button class="chip searchshop-chip" data-city="3" onclick="setShopFilter(this,'3')">&#x1F4CD; Mumbai</button>
+            </div>
+        </div>
+        <div id="searchshop-results" class="scroll" style="padding:13px"></div>
+    </div>
+
+    <!-- --- SCREEN: BREEDING MATCH ------------------------------------------ -->
+    <div id="screen-breedingMatch" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F49E; Breeding Match</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+            <div class="chips">
+                <button class="chip breeding-species-chip active" data-sp=""
+                    onclick="setBreedingSpecies(this,'')">All</button>
+                <button class="chip breeding-species-chip" data-sp="dog"
+                    onclick="setBreedingSpecies(this,'dog')">&#x1F436; Dogs</button>
+                <button class="chip breeding-species-chip" data-sp="cat"
+                    onclick="setBreedingSpecies(this,'cat')">&#x1F431; Cats</button>
+                <button class="chip breeding-species-chip" data-sp="rabbit"
+                    onclick="setBreedingSpecies(this,'rabbit')">&#x1F430; Rabbits</button>
+                <button class="chip breeding-species-chip" data-sp="bird"
+                    onclick="setBreedingSpecies(this,'bird')">&#x1F426; Birds</button>
+            </div>
+            <div class="d-row" style="gap:8px;margin-top:10px">
+                <input id="breeding-breed-q" class="field-input"
+                    style="flex:2;font-size:13px"
+                    placeholder="Breed (e.g. Labrador)"
+                    oninput="doBreedingSearch()" />
+                <select id="breeding-gender" class="field-input"
+                    style="flex:1;font-size:13px"
+                    onchange="doBreedingSearch()">
+                    <option value="">Any gender</option>
+                    <option value="male">&#x2642; Male</option>
+                    <option value="female">&#x2640; Female</option>
+                </select>
+            </div>
+        </div>
+        <div id="breeding-results" class="scroll" style="padding:13px"></div>
+    </div>
+
+    <!-- --- SCREEN: ADMIN ------------------------------------------------- -->
+    <div id="screen-admin" class="afp-screen screen d-none">
+        <div class="admin-hdr">
+            <div class="admin-hdr-left">
+                <div class="admin-logo">&#x1F3DB;&#xFE0F;</div>
+                <span class="admin-title">Municipal Portal</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+                <span id="admin-role-badge"></span>
+                <button class="icon-btn" style="border-color:#333;background:#222" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+            </div>
+        </div>
+        <div id="admin-tabs" class="tabs"></div>
+        <div id="admin-body" class="scroll p-18 pb-32"></div>
+    </div>
+
+    <!-- --- SCREEN: COMMUNITY FORUM ---------------------------------------- -->
+    <div id="screen-forum" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F4AC; Community Forum</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="forum-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: FORUM THREAD -------------------------------------------- -->
+    <div id="screen-forumThread" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('forum')">&#x2190;</button>
+                <span class="topbar-title">Discussion</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="forum-thread-body" class="scroll p-18 pb-32"></div>
+    </div>
+
+    <!-- --- FORUM: NEW / EDIT THREAD MODAL ---------------------------------- -->
+    <div id="forum-thread-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div id="forum-thread-modal-title" style="font-size:16px;font-weight:700"></div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                    onclick="Forum.closeThreadModal()">&times;</button>
+            </div>
+            <div id="forum-thread-modal-err" style="margin-bottom:4px"></div>
+            <div id="forum-thread-modal-body"
+                 class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+            <div class="d-row" style="margin-top:16px">
+                <button class="btn btn-ghost" onclick="Forum.closeThreadModal()">Cancel</button>
+                <button id="forum-thread-modal-save-btn" class="btn btn-primary"
+                    onclick="Forum.saveThread()">
+                    &#x2714;&#xFE0F; Post Discussion
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- FORUM: CONFIRM DELETE MODAL -------------------------------------- -->
+    <div id="forum-confirm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center">
+            <div class="modal-handle"></div>
+            <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">Confirm Delete</div>
+            <div id="forum-confirm-msg"
+                 style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+            <div class="d-row">
+                <button class="btn btn-ghost" onclick="Forum.closeConfirmModal()">Cancel</button>
+                <button id="forum-confirm-del-btn" class="btn btn-danger"
+                    onclick="Forum.executeConfirm()">
+                    &#x1F5D1;&#xFE0F; Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- GLOBAL TOAST -------------------------------------------------- -->
+    <div id="afp-toast" class="afp-toast hidden"></div>
+
+    <!-- --- QR CODE MODAL ------------------------------------------------- -->
+    <div id="qr-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center">
+            <div class="modal-handle"></div>
+            <div style="font-size:17px;font-weight:700;margin-bottom:3px">&#x1F4F1; Pet QR Code</div>
+            <div style="font-size:12px;color:var(--tx2);margin-bottom:18px">Scan to identify your pet</div>
+            <div class="qr-wrap"><div id="qr-grid"></div></div>
+            <div id="qr-pet-id" style="font-size:11px;font-family:monospace;color:var(--tx3);margin-bottom:2px"></div>
+            <div id="qr-pet-name" style="font-size:14px;font-weight:700;margin-bottom:1px"></div>
+            <div id="qr-pet-sub" style="font-size:12px;color:var(--tx2);margin-bottom:16px"></div>
+            <div style="background:var(--sf2);border-radius:10px;padding:12px;margin-bottom:16px;text-align:left">
+                <div id="qr-details"></div>
+            </div>
+            <div class="gap-8">
+                <button class="btn btn-primary" onclick="AFP.tst('&#x1F4F1; Sharing QR…');closeQRModal()">&#x1F4F1; Share QR Code</button>
+                <button class="btn btn-ghost" onclick="closeQRModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- DOCTOR DETAIL MODAL ------------------------------------------- -->
+    <div id="doc-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+                <div style="width:58px;height:58px;border-radius:15px;background:var(--bl-p);display:flex;align-items:center;justify-content:center;font-size:26px" id="docmodal-avatar">&#x1F468;&#x200D;&#x2695;&#xFE0F;</div>
+                <div>
+                    <div id="docmodal-name" style="font-size:17px;font-weight:700"></div>
+                    <div id="docmodal-qual" style="font-size:13px;color:var(--tx2)"></div>
+                    <span class="badge badge-ok">Available today</span>
+                </div>
+            </div>
+            <div class="card"><div id="docmodal-details"></div></div>
+            <div class="d-row mt-8">
+                <button id="docmodal-call" class="btn btn-primary">&#x1F4DE; Call</button>
+                <button class="btn btn-ghost" onclick="AFP.tst('&#x1F5FA;&#xFE0F; Opening maps…');closeDoctorModal()">&#x1F5FA;&#xFE0F; Directions</button>
+            </div>
+            <button class="btn btn-ghost mt-8" onclick="closeDoctorModal()">Close</button>
+        </div>
+    </div>
+
+    <!-- --- SHOP DETAIL MODAL --------------------------------------------- -->
+    <div id="shop-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+                <div style="width:58px;height:58px;border-radius:15px;background:#F3E8FF;display:flex;align-items:center;justify-content:center;font-size:28px">&#x1F6D2;</div>
+                <div>
+                    <div id="shopmodal-name" style="font-size:17px;font-weight:700"></div>
+                    <div id="shopmodal-owner" style="font-size:13px;color:var(--tx2)"></div>
+                    <span class="badge badge-ok">Open</span>
+                </div>
+            </div>
+            <div class="card"><div id="shopmodal-details"></div></div>
+            <div class="d-row mt-8">
+                <button id="shopmodal-call" class="btn btn-primary">&#x1F4DE; Call</button>
+                <button class="btn btn-ghost" onclick="AFP.tst('&#x1F5FA;&#xFE0F; Opening maps…');closeShopModal()">&#x1F5FA;&#xFE0F; Directions</button>
+            </div>
+            <button class="btn btn-ghost mt-8" onclick="closeShopModal()">Close</button>
+        </div>
+    </div>
+
+    <!-- --- GEO MANAGER MODAL --------------------------------------------- -->
+    <div id="geo-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div id="geomodal-title" style="font-size:16px;font-weight:700;margin-bottom:16px"></div>
+            <div id="geomodal-err"></div>
+            <div id="geomodal-fields"></div>
+            <div class="d-row" style="margin-top:4px">
+                <button class="btn btn-ghost" onclick="closeGeoModal()">Cancel</button>
+                <button id="geomodal-save-btn" class="btn btn-primary" onclick="geoModalSave()">Save &#x2192;</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- USER ADD / EDIT MODAL ---------------------------------------- -->
+    <div id="um-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div id="um-modal-title" style="font-size:16px;font-weight:700"></div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                    onclick="UserMgmt.closeUserModal()">&times;</button>
+            </div>
+            <div id="um-modal-err" style="margin-bottom:4px"></div>
+            <div id="um-modal-body"></div>
+            <div class="d-row" style="margin-top:16px">
+                <button class="btn btn-ghost" onclick="UserMgmt.closeUserModal()">Cancel</button>
+                <button id="um-modal-save-btn" class="btn btn-primary" onclick="UserMgmt.saveUser()">
+                    &#x2714;&#xFE0F; Save User
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- USER DELETE CONFIRM MODAL ------------------------------------ -->
+    <div id="um-confirm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center">
+            <div class="modal-handle"></div>
+            <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete User?</div>
+            <div id="um-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+            <div class="d-row">
+                <button class="btn btn-ghost" onclick="UserMgmt.closeConfirmModal()">Cancel</button>
+                <button id="um-confirm-del-btn" class="btn btn-danger" onclick="UserMgmt.executeDelete()">
+                    &#x1F5D1;&#xFE0F; Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- PAYMENT MODAL ------------------------------------------------ -->
+    <div id="pay-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;gap:11px;margin-bottom:18px">
+                <div style="width:46px;height:46px;border-radius:13px;background:var(--ok-p);
+                            display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+                    &#x1F4B3;
+                </div>
+                <div>
+                    <div style="font-size:16px;font-weight:700">Secure Payment</div>
+                    <div style="font-size:12px;color:var(--tx2)">Powered by Razorpay</div>
+                </div>
+            </div>
+            <div class="pay-summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <div id="pay-purpose-label" style="font-size:13px;font-weight:600"></div>
+                        <div id="pay-pet-name" style="font-size:12px;color:var(--tx2);margin-top:2px"></div>
+                    </div>
+                    <div id="pay-amount" style="font-size:24px;font-weight:700;color:var(--or)"></div>
+                </div>
+            </div>
+            <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;
+                        letter-spacing:.5px;margin-bottom:8px">Pay via</div>
+            <div class="chips" style="margin-bottom:16px">
+                <button class="chip pay-method-chip active" data-method="upi">&#x1F4F1; UPI</button>
+                <button class="chip pay-method-chip" data-method="card">&#x1F4B3; Card</button>
+                <button class="chip pay-method-chip" data-method="netbanking">&#x1F3E6; Net Banking</button>
+                <button class="chip pay-method-chip" data-method="wallet">&#x1F4B0; Wallet</button>
+            </div>
+            <div class="pay-benefits">
+                <div class="pay-benefit-row">&#x2705; Official municipal pet licence</div>
+                <div class="pay-benefit-row">&#x2705; 1-year validity certificate (PDF)</div>
+                <div class="pay-benefit-row">&#x2705; Unique Pet ID &amp; QR code</div>
+                <div class="pay-benefit-row">&#x1F512; 256-bit encrypted &amp; secure</div>
+            </div>
+            <div id="pay-err" style="margin-bottom:4px"></div>
+            <div id="pay-processing"
+                 style="display:none;align-items:center;gap:9px;padding:11px;
+                        background:var(--ok-p);border-radius:8px;margin-bottom:12px">
+                <span class="spinner mini-spinner"></span>
+                <span style="font-size:13px;color:#065F46;font-weight:600">Verifying payment&hellip; please wait</span>
+            </div>
+            <button id="pay-btn" class="btn btn-primary" onclick="Payment.startPayment()">
+                &#x1F512; Pay Now
+            </button>
+            <button class="btn btn-ghost mt-8" onclick="Payment.closePaymentModal()">Cancel</button>
+            <div style="text-align:center;font-size:11px;color:var(--tx3);margin-top:12px">
+                &#x1F512; Payments processed securely by Razorpay. We never store card details.
+            </div>
+        </div>
+    </div>
+
+    <!-- --- DOCTOR ADD / EDIT MODAL ------------------------------------ -->
+    <div id="dm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div id="dm-modal-title" style="font-size:16px;font-weight:700"></div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                    onclick="DoctorMgmt.closeModal()">&times;</button>
+            </div>
+            <div id="dm-modal-err" style="margin-bottom:4px"></div>
+            <div id="dm-modal-body" class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+            <div class="d-row" style="margin-top:16px">
+                <button class="btn btn-ghost" onclick="DoctorMgmt.closeModal()">Cancel</button>
+                <button id="dm-modal-save-btn" class="btn btn-primary" onclick="DoctorMgmt.saveEntry()">
+                    &#x2714;&#xFE0F; Save Doctor
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- DOCTOR DELETE CONFIRM MODAL --------------------------------- -->
+    <div id="dm-confirm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center">
+            <div class="modal-handle"></div>
+            <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete Doctor?</div>
+            <div id="dm-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+            <div class="d-row">
+                <button class="btn btn-ghost" onclick="DoctorMgmt.closeConfirmModal()">Cancel</button>
+                <button id="dm-confirm-del-btn" class="btn btn-danger" onclick="DoctorMgmt.executeDelete()">
+                    &#x1F5D1;&#xFE0F; Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- SHOP ADD / EDIT MODAL ---------------------------------------- -->
+    <div id="sm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div id="sm-modal-title" style="font-size:16px;font-weight:700"></div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                    onclick="ShopMgmt.closeModal()">&times;</button>
+            </div>
+            <div id="sm-modal-err" style="margin-bottom:4px"></div>
+            <div id="sm-modal-body" class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+            <div class="d-row" style="margin-top:16px">
+                <button class="btn btn-ghost" onclick="ShopMgmt.closeModal()">Cancel</button>
+                <button id="sm-modal-save-btn" class="btn btn-primary" onclick="ShopMgmt.saveEntry()">
+                    &#x2714;&#xFE0F; Save Shop
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- SHOP DELETE CONFIRM MODAL ----------------------------------- -->
+    <div id="sm-confirm-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center">
+            <div class="modal-handle"></div>
+            <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete Shop?</div>
+            <div id="sm-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+            <div class="d-row">
+                <button class="btn btn-ghost" onclick="ShopMgmt.closeConfirmModal()">Cancel</button>
+                <button id="sm-confirm-del-btn" class="btn btn-danger" onclick="ShopMgmt.executeDelete()">
+                    &#x1F5D1;&#xFE0F; Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- PET PHOTO VIEWER MODAL -------------------------------------------------------- -->
+    <div id="photo-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet" style="text-align:center;padding:16px 16px 20px">
+            <div class="modal-handle"></div>
+            <div id="photo-modal-title" style="font-size:16px;font-weight:700;margin-bottom:14px">&#x1F5BC;&#xFE0F; Pet Photo</div>
+            <div style="border-radius:14px;overflow:hidden;background:var(--sf2);
+                        min-height:80px;display:flex;align-items:center;justify-content:center;
+                        margin-bottom:14px">
+                <img id="photo-modal-img" src="" alt="Pet photo"
+                     style="max-width:100%;max-height:60vh;object-fit:contain;display:block;border-radius:12px">
+            </div>
+            <div id="photo-modal-err"
+                 style="display:none;color:var(--er);font-size:13px;margin-bottom:12px;line-height:19px"></div>
+            <button class="btn btn-ghost" onclick="closePetPhotoModal()">&#x2715; Close</button>
+        </div>
+    </div>
+
+    <!-- --- BREEDING CONTACT MODAL --------------------------------------- -->
+    <div id="breed-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+                <div style="width:58px;height:58px;border-radius:15px;background:var(--or-p);
+                            display:flex;align-items:center;justify-content:center;font-size:28px"
+                     id="breed-modal-icon">&#x1F43E;</div>
+                <div>
+                    <div id="breed-modal-name" style="font-size:17px;font-weight:700"></div>
+                    <div id="breed-modal-sub"  style="font-size:13px;color:var(--tx2)"></div>
+                    <span class="badge badge-or">&#x1F49E; Available for breeding</span>
+                </div>
+            </div>
+            <div class="card"><div id="breed-modal-details"></div></div>
+            <div style="background:var(--ok-p);border-radius:10px;padding:11px 13px;margin-top:12px;
+                        font-size:12px;color:#065F46;line-height:18px">
+                &#x2139;&#xFE0F; Owner details are shared with their consent. Please be respectful and responsible.
+            </div>
+            <div class="d-row mt-8">
+                <button id="breed-modal-contact" class="btn btn-primary">&#x1F4E9; Send Interest</button>
+                <button class="btn btn-ghost" onclick="closeBreedingModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- REPORT COMMENTS MODAL ---------------------------------------- -->
+    <div id="rc-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <div style="font-size:16px;font-weight:700">&#x1F4AC; Report Comments</div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                    onclick="closeReportCommentsModal()">&times;</button>
+            </div>
+            <div id="rc-report-summary"
+                 style="font-size:12px;color:var(--tx2);margin-bottom:14px;padding:8px 10px;
+                        background:var(--sf2);border-radius:8px;line-height:18px"></div>
+            <!-- existing comments list -->
+            <div id="rc-comments-list"
+                 class="scroll"
+                 style="max-height:40vh;overflow-y:auto;margin-bottom:14px;
+                        border:1px solid var(--bd);border-radius:10px;padding:10px;
+                        display:flex;flex-direction:column;gap:10px">
+            </div>
+            <!-- add / edit comment form -->
+            <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;
+                        letter-spacing:.5px;margin-bottom:6px" id="rc-form-label">Add Comment</div>
+            <div id="rc-comment-err"
+                 style="color:var(--er);font-size:11px;font-weight:600;display:none;margin-bottom:6px"></div>
+            <textarea id="rc-comment-input" class="field-input"
+                placeholder="Type your comment here…" rows="3"
+                style="resize:vertical;font-size:13px"></textarea>
+            <div class="d-row" style="margin-top:10px">
+                <button class="btn btn-ghost" id="rc-cancel-edit-btn"
+                    style="display:none" onclick="rcCancelEdit()">Cancel edit</button>
+                <button class="btn btn-primary" id="rc-save-btn"
+                    onclick="rcSaveComment()">&#x1F4BE; Save Comment</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@section Scripts {
+<script>
+    // Populate profile header on screen load
+    const _origGo = AFP.go;
+    // Augment AFP.go: screen lifecycle hooks
+    const _patchedGo = function(screen) {
+        if (screen === 'petProfile') {
+            // petProfile manages its own DOM visibility inside loadPetProfile()
+            loadPetProfile();
+            return;
+        }
+        _origGo(screen);
+        if (screen === 'renew')        { setTimeout(initRenew,         50); }
+        if (screen === 'newOwner')     { setTimeout(initNewOwner,      50); }
+        if (screen === 'forum')        { setTimeout(() => Forum.loadForum(), 50); }
+        if (screen === 'searchDoctor')  { setTimeout(loadSearchDoctor,  50); }
+        if (screen === 'searchShop')    { setTimeout(loadSearchShop,    50); }
+        if (screen === 'breedingMatch') { setTimeout(loadBreedingMatch, 50); }
+    };
+    Object.defineProperty(AFP, 'go', { get: () => _patchedGo });
+</script>
+}

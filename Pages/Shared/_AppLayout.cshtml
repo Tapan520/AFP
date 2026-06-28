@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>All For Pets — Municipal Pet Registry</title>
+    <link rel="stylesheet" href="~/css/afp.css" asp-append-version="true" />
+</head>
+<body>
+    @RenderBody()
+    <script src="~/js/afp-core.js" asp-append-version="true"></script>
+    <script src="~/js/afp-components.js" asp-append-version="true"></script>
+    <script src="~/js/afp-validation.js" asp-append-version="true"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="~/js/afp-payment.js" asp-append-version="true"></script>
+    <script src="~/js/afp-usermgmt.js" asp-append-version="true"></script>
+    <script src="~/js/afp-doctorshop-mgmt.js" asp-append-version="true"></script>
+    <script src="~/js/afp-forum.js" asp-append-version="true"></script>
+    <script src="~/js/afp-screens.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
