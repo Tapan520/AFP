@@ -11,62 +11,80 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
 // Direct DB connection - implements discussion forum without relying on the old backend
-// Railway DATABASE_URL uses postgres:// scheme - parsed manually as System.Uri rejects it
+// Tries individual PG* vars first (Railway injects these automatically), then DATABASE_URL
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 string? dbInitError = null;
 string? dbHost = null;
-if (!string.IsNullOrEmpty(dbConnStr))
+try
 {
-    try
+    // Strategy 1: Use individual PG* env vars (Railway injects these automatically)
+    var pgHost = Environment.GetEnvironmentVariable("PGHOST");
+    var pgPort = Environment.GetEnvironmentVariable("PGPORT") ?? "5432";
+    var pgUser = Environment.GetEnvironmentVariable("PGUSER");
+    var pgPass = Environment.GetEnvironmentVariable("PGPASSWORD");
+    var pgDb   = Environment.GetEnvironmentVariable("PGDATABASE") ?? "railway";
+
+    if (!string.IsNullOrEmpty(pgHost) && !string.IsNullOrEmpty(pgUser))
     {
-        // Strip scheme prefix (postgres:// or postgresql://)
+        dbHost = $"{pgHost}:{pgPort}/{pgDb}";
+        var csb = new NpgsqlConnectionStringBuilder
+        {
+            Host                   = pgHost,
+            Port                   = int.TryParse(pgPort, out var pp) ? pp : 5432,
+            Database               = pgDb,
+            Username               = pgUser,
+            Password               = pgPass ?? "",
+            SslMode                = SslMode.Disable,
+            TrustServerCertificate = true,
+        };
+        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
+        Console.WriteLine($"DB initialized via PG* vars: {dbHost}");
+    }
+    else if (!string.IsNullOrEmpty(dbConnStr))
+    {
+        // Strategy 2: Manually parse postgres:// or postgresql:// URI
         var s = dbConnStr;
         if      (s.StartsWith("postgresql://")) s = s.Substring("postgresql://".Length);
         else if (s.StartsWith("postgres://"))   s = s.Substring("postgres://".Length);
-        else throw new Exception($"Unknown DATABASE_URL scheme (got: {s.Split(':')[0]}://)");
+        else throw new Exception($"Unknown scheme: {s.Split(':')[0]}");
 
-        // Split userinfo@host/db  ->  find the LAST '@' to handle passwords with '@'
-        var atIdx = s.LastIndexOf('@');
-        if (atIdx < 0) throw new Exception("DATABASE_URL missing '@' separator");
+        var atIdx    = s.LastIndexOf('@');
+        if (atIdx < 0) throw new Exception("Missing '@' in DATABASE_URL");
         var userInfo = s.Substring(0, atIdx);
         var hostPart = s.Substring(atIdx + 1);
 
-        // user:password
         var ci   = userInfo.IndexOf(':');
         var user = ci >= 0 ? userInfo.Substring(0, ci) : userInfo;
         var pass = ci >= 0 ? userInfo.Substring(ci + 1) : "";
 
-        // host:port/database
         var si       = hostPart.IndexOf('/');
         var hostPort = si >= 0 ? hostPart.Substring(0, si) : hostPart;
         var database = si >= 0 ? hostPart.Substring(si + 1) : "railway";
 
-        // host:port
         var pi      = hostPort.LastIndexOf(':');
         var host    = pi >= 0 ? hostPort.Substring(0, pi) : hostPort;
         var portStr = pi >= 0 ? hostPort.Substring(pi + 1) : "5432";
 
         dbHost = $"{host}:{portStr}/{database}";
-
-        var csb = new NpgsqlConnectionStringBuilder
+        var csb2 = new NpgsqlConnectionStringBuilder
         {
             Host                   = host,
-            Port                   = int.TryParse(portStr, out var p) ? p : 5432,
+            Port                   = int.TryParse(portStr, out var p2) ? p2 : 5432,
             Database               = database,
             Username               = Uri.UnescapeDataString(user),
             Password               = Uri.UnescapeDataString(pass),
             SslMode                = SslMode.Disable,
             TrustServerCertificate = true,
         };
-        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
-        Console.WriteLine($"DB source initialized: {dbHost}");
+        dbSource = NpgsqlDataSource.Create(csb2.ConnectionString);
+        Console.WriteLine($"DB initialized via DATABASE_URL: {dbHost}");
     }
-    catch (Exception ex)
-    {
-        dbInitError = ex.Message;
-        Console.WriteLine($"DB init error: {ex.Message}");
-    }
+}
+catch (Exception ex)
+{
+    dbInitError = ex.Message;
+    Console.WriteLine($"DB init error: {ex.Message}");
 }
 
 var app = builder.Build();
@@ -686,11 +704,11 @@ app.MapGet("/api/dbstatus", async () =>
 {
     if (dbSource == null)
         return Results.Json(new {
-            db         = "not_configured",
-            has_env    = !string.IsNullOrEmpty(dbConnStr),
+            db          = "not_configured",
+            has_url     = !string.IsNullOrEmpty(dbConnStr),
+            has_pghost  = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PGHOST")),
             parsed_host = dbHost,
-            init_error = dbInitError,
-            hint       = "Set DATABASE_URL env var on Railway AFP service"
+            init_error  = dbInitError,
         });
     try
     {
