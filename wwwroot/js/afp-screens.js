@@ -140,10 +140,11 @@ function initAdminLogin() {
 
 // ?? SCREEN: DASHBOARD ?????????????????????????????????????????????????????????
 async function loadDashboard() {
-    const user = AFP.getUser();
-    if (!user) { AFP.go("splash"); return; }
-    const body = document.getElementById("dashboard-body");
-    renderLoading(body);
+const user = AFP.getUser();
+if (!user) { AFP.go("splash"); return; }
+const body = document.getElementById("dashboard-body");
+renderLoading(body);
+generateNotifications();
     try {
         const pets     = await AFP.GET("/api/pets/my");
         const approved = pets.filter(p => p.registration_status === "approved");
@@ -202,7 +203,31 @@ async function loadDashboard() {
             <div class="fcard" onclick="AFP.go('forum')">
                 <div class="fcard-icon" style="background:#E8F4FF">&#x1F4AC;</div>
                 <div class="fcard-lbl">Community forum</div>
-            </div>` : "";
+            </div>
+            <div class="fcard" onclick="AFP.go('vaxReminders')">
+                <div class="fcard-icon" style="background:#FEF3C7">&#x1F489;</div>
+                <div class="fcard-lbl">Vaccine reminders</div>
+            </div>
+            <div class="fcard" onclick="AFP.go('adoption')">
+                <div class="fcard-icon" style="background:#D1FAE5">&#x1F43E;</div>
+                <div class="fcard-lbl">Adopt a pet</div>
+            </div>
+            <div class="fcard" onclick="AFP.go('lostFound')">
+                <div class="fcard-icon" style="background:#EBF3FF">&#x1F50D;</div>
+                <div class="fcard-lbl">Lost &amp; found</div>
+            </div>
+            <div class="fcard" onclick="AFP.go('emergencyVet')">
+                <div class="fcard-icon" style="background:#FEE2E2">&#x1F6A8;</div>
+                <div class="fcard-lbl">Emergency vet</div>
+            </div>
+            <div class="fcard" onclick="AFP.go('microchip')">
+                <div class="fcard-icon" style="background:#F3E8FF">&#x1F4F2;</div>
+                <div class="fcard-lbl">Microchip lookup</div>
+            </div>
+            <div class="fcard" onclick="AFP.go('events')">
+                <div class="fcard-icon" style="background:#FFF3E8">&#x1F4C5;</div>
+                <div class="fcard-lbl">Pet events</div>
+            </div>` : ""; 
 
         body.innerHTML = `
             <div class="p-18" style="padding-bottom:6px">
@@ -432,8 +457,17 @@ async function loadPetProfile() {
         if (pet.photo_url)       _petPhoto = { uploaded: true };
         if (pet.certificate_url) _vaxCert  = { uploaded: true };
         renderPetProfileHeader(pet);
-        document.querySelectorAll("#screen-petProfile .tab").forEach(t =>
+    document.querySelectorAll("#screen-petProfile .tab").forEach(t =>
             t.classList.toggle("active", t.dataset.tab === "details"));
+        // Inject journal tab if not already present
+        const tabBar = document.querySelector("#screen-petProfile .tabs");
+        if (tabBar && !tabBar.querySelector('[data-tab="journal"]')) {
+            const jTab = document.createElement("button");
+            jTab.className = "tab"; jTab.dataset.tab = "journal";
+            jTab.textContent = "Journal";
+            jTab.onclick = () => petProfileSetTab("journal");
+            tabBar.appendChild(jTab);
+        }
         renderPetProfileTab("details");
     } catch (ex) {
         AFP.tst("Pet not found");
@@ -568,6 +602,9 @@ async function renderPetProfileTab(tab) {
                 </div>
             </div>` : ""}`;
 
+    } else if (tab === "journal") {
+        loadHealthJournal(pet.id);
+        return;
     } else if (tab === "health") {
         const dv     = AFP.daysTo(pet.vaccine_next_due);
         const dvAbs  = dv !== null ? Math.abs(dv) : null;
@@ -1501,13 +1538,15 @@ function renderAdminTabBar(user) {
 const isSA = user?.role === "super_admin";
 const canManageUsers = ["super_admin","city_admin","nigam_admin","zone_admin","ward_admin"].includes(user?.role);
 const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "pending",  label: `Pending (${_adminPending.length})` },
-    { key: "pets",     label: "Pets" },
-        ...(canManageUsers ? [{ key: "users",    label: "\ud83d\udc65 Users"   }] : []),
-        ...(canManageUsers ? [{ key: "reports",  label: "\ud83d\udccb Reports" }] : []),
-    { key: "cities",   label: "Cities" },
-    ...(isSA ? [{ key: "doctors", label: "+ Doctors" }, { key: "shops", label: "+ Shops" }] : []),
+    { key: "overview",   label: "Overview" },
+    { key: "pending",    label: `Pending (${_adminPending.length})` },
+    { key: "pets",       label: "Pets" },
+    ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
+    ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
+    { key: "cities",     label: "Cities" },
+    ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
+    ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
+    ...(isSA ? [{ key: "analytics", label: "&#x1F4CA; Stats" }] : []),
 ];
     document.getElementById("admin-tabs").innerHTML = tabs.map(t =>
         `<button class="tab${_adminTab === t.key ? " active" : ""}"
@@ -1638,6 +1677,9 @@ async function renderAdminTab(tab) {
     } else if (tab === "shops") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await ShopMgmt.loadShopMgmt(body);
+    } else if (tab === "analytics") {
+        if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
+        await renderAnalyticsDashboard(body);
     }
 }
 

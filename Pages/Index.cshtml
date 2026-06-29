@@ -119,7 +119,11 @@
                 <div class="topbar-logo">&#x1F43E;</div>
                 <span class="topbar-title">All For Pets</span>
             </div>
-            <div style="display:flex;align-items:center;gap:6px"><button class="icon-btn" onclick="AFP.tst('&#x1F514; No new notifications')">&#x1F514;</button>
+            <div style="display:flex;align-items:center;gap:6px">
+                <div class="notif-badge-wrap">
+                    <button class="icon-btn" onclick="AFP.go('notifications')" title="Notifications">&#x1F514;</button>
+                    <div id="notif-badge" class="notif-badge">0</div>
+                </div>
                 <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
             </div>
         </div>
@@ -162,6 +166,90 @@
             <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
         </div>
         <div id="meter-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: NOTIFICATIONS --------------------------------------- -->
+    <div id="screen-notifications" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F514; Notifications</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="notif-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: VACCINE REMINDERS ----------------------------------- -->
+    <div id="screen-vaxReminders" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F489; Vaccine Reminders</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="vax-reminder-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: ADOPTION CENTER ------------------------------------- -->
+    <div id="screen-adoption" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F43E; Pet Adoption</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="adoption-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: LOST & FOUND ---------------------------------------- -->
+    <div id="screen-lostFound" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F50D; Lost &amp; Found</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="lostfound-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: EMERGENCY VET --------------------------------------- -->
+    <div id="screen-emergencyVet" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F6A8; Emergency Vet</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="emergency-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: MICROCHIP LOOKUP ------------------------------------ -->
+    <div id="screen-microchip" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F4F2; Microchip Lookup</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="microchip-body" class="scroll" style="padding-bottom:24px"></div>
+    </div>
+
+    <!-- --- SCREEN: EVENTS ---------------------------------------------- -->
+    <div id="screen-events" class="afp-screen screen d-none">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+                <span class="topbar-title">&#x1F4C5; Community Events</span>
+            </div>
+            <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+        <div id="events-body" class="scroll" style="padding-bottom:24px"></div>
     </div>
 
     <!-- --- SCREEN: PROFILE ---------------------------------------------- -->
@@ -526,6 +614,62 @@
     <!-- --- GLOBAL TOAST -------------------------------------------------- -->
     <div id="afp-toast" class="afp-toast hidden"></div>
 
+    <!-- --- ADOPTION INTEREST MODAL -------------------------------------- -->
+    <div id="adoption-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div id="adoption-modal-name" style="font-size:16px;font-weight:700"></div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer"
+                    onclick="closeAdoptionModal()">&times;</button>
+            </div>
+            <div class="card"><div id="adoption-modal-details"></div></div>
+            <div style="background:var(--ok-p);border-radius:10px;padding:11px 13px;margin-top:12px;
+                        font-size:12px;color:#065F46;line-height:18px">
+                &#x2139;&#xFE0F; Your contact info will be shared with the pet owner to arrange a meeting.
+            </div>
+            <div class="d-row mt-8">
+                <button id="adoption-interest-btn" class="btn btn-primary">&#x1F43E; Send Interest</button>
+                <button class="btn btn-ghost" onclick="closeAdoptionModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- ADD EVENT MODAL ----------------------------------------------- -->
+    <div id="event-add-modal" class="modal-bg" style="display:none">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div style="font-size:16px;font-weight:700">&#x1F4C5; New Event</div>
+                <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer"
+                    onclick="closeAddEventModal()">&times;</button>
+            </div>
+            <div class="field">
+                <label class="field-label">Event Type</label>
+                <select id="ev-type" class="field-input">
+                    <option value="vaccination">&#x1F489; Vaccination Camp</option>
+                    <option value="adoption">&#x1F43E; Adoption Drive</option>
+                    <option value="meetup">&#x1F415; Meetup</option>
+                    <option value="awareness">&#x1F4E2; Awareness Camp</option>
+                </select>
+            </div>
+            <div class="field"><label class="field-label">Title *</label>
+                <input id="ev-title" class="field-input" placeholder="Event title" /></div>
+            <div class="field"><label class="field-label">Date *</label>
+                <input id="ev-date" class="field-input" type="date" /></div>
+            <div class="field"><label class="field-label">Location *</label>
+                <input id="ev-location" class="field-input" placeholder="Venue / address" /></div>
+            <div class="field"><label class="field-label">Description</label>
+                <textarea id="ev-desc" class="field-input" rows="3"
+                    placeholder="Describe the event..."></textarea></div>
+            <div class="d-row mt-8">
+                <button class="btn btn-ghost" onclick="closeAddEventModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveNewEvent()">&#x2714;&#xFE0F; Create Event</button>
+            </div>
+        </div>
+    </div>
+    <div id="afp-toast" class="afp-toast hidden"></div>
+
     <!-- --- QR CODE MODAL ------------------------------------------------- -->
     <div id="qr-modal" class="modal-bg" style="display:none">
         <div class="modal-sheet" style="text-align:center">
@@ -863,6 +1007,7 @@
         if (screen === 'searchDoctor')  { setTimeout(loadSearchDoctor,  50); }
         if (screen === 'searchShop')    { setTimeout(loadSearchShop,    50); }
         if (screen === 'breedingMatch') { setTimeout(loadBreedingMatch, 50); }
+        if (screen === 'microchip')     { setTimeout(loadMicrochip,     50); }
     };
     Object.defineProperty(AFP, 'go', { get: () => _patchedGo });
 </script>

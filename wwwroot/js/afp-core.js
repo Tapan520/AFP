@@ -66,11 +66,18 @@ const AFP = (() => {
         if (target) {
             target.classList.remove("d-none");
             const loaders = {
-                dashboard:    loadDashboard,
-                searchPet:    loadSearchPet,
-                petMeter:     loadPetMeter,
-                profile:      loadProfile,
-                admin:        loadAdmin,
+                dashboard:     loadDashboard,
+                searchPet:     loadSearchPet,
+                petMeter:      loadPetMeter,
+                profile:       loadProfile,
+                admin:         loadAdmin,
+                notifications: loadNotifications,
+                vaxReminders:  loadVaccineReminders,
+                adoption:      loadAdoption,
+                lostFound:     loadLostFound,
+                emergencyVet:  loadEmergencyVet,
+                microchip:     loadMicrochip,
+                events:        loadEvents,
             };
             if (loaders[screen]) loaders[screen]();
         } else {
