@@ -15,6 +15,7 @@ builder.Services.AddHttpClient();
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 string? dbInitError = null;
+string? dbHost = null;
 if (!string.IsNullOrEmpty(dbConnStr))
 {
     try
@@ -23,9 +24,11 @@ if (!string.IsNullOrEmpty(dbConnStr))
         var s = dbConnStr;
         if      (s.StartsWith("postgresql://")) s = s.Substring("postgresql://".Length);
         else if (s.StartsWith("postgres://"))   s = s.Substring("postgres://".Length);
+        else throw new Exception($"Unknown DATABASE_URL scheme (got: {s.Split(':')[0]}://)");
 
         // Split userinfo@host/db  ->  find the LAST '@' to handle passwords with '@'
-        var atIdx    = s.LastIndexOf('@');
+        var atIdx = s.LastIndexOf('@');
+        if (atIdx < 0) throw new Exception("DATABASE_URL missing '@' separator");
         var userInfo = s.Substring(0, atIdx);
         var hostPart = s.Substring(atIdx + 1);
 
@@ -44,6 +47,8 @@ if (!string.IsNullOrEmpty(dbConnStr))
         var host    = pi >= 0 ? hostPort.Substring(0, pi) : hostPort;
         var portStr = pi >= 0 ? hostPort.Substring(pi + 1) : "5432";
 
+        dbHost = $"{host}:{portStr}/{database}";
+
         var csb = new NpgsqlConnectionStringBuilder
         {
             Host                   = host,
@@ -55,7 +60,7 @@ if (!string.IsNullOrEmpty(dbConnStr))
             TrustServerCertificate = true,
         };
         dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
-        Console.WriteLine($"DB source initialized: {host}:{portStr}/{database}");
+        Console.WriteLine($"DB source initialized: {dbHost}");
     }
     catch (Exception ex)
     {
@@ -681,10 +686,11 @@ app.MapGet("/api/dbstatus", async () =>
 {
     if (dbSource == null)
         return Results.Json(new {
-            db          = "not_configured",
-            has_env     = !string.IsNullOrEmpty(dbConnStr),
-            init_error  = dbInitError,
-            hint        = "Set DATABASE_URL env var on Railway AFP service"
+            db         = "not_configured",
+            has_env    = !string.IsNullOrEmpty(dbConnStr),
+            parsed_host = dbHost,
+            init_error = dbInitError,
+            hint       = "Set DATABASE_URL env var on Railway AFP service"
         });
     try
     {
@@ -692,11 +698,11 @@ app.MapGet("/api/dbstatus", async () =>
         await using var cmd  = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*)::int FROM users";
         var count = await cmd.ExecuteScalarAsync();
-        return Results.Json(new { db = "connected", users = count });
+        return Results.Json(new { db = "connected", host = dbHost, users = count });
     }
     catch (Exception ex)
     {
-        return Results.Json(new { db = "error", message = ex.Message }, statusCode: 500);
+        return Results.Json(new { db = "error", host = dbHost, message = ex.Message }, statusCode: 500);
     }
 });
 
