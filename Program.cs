@@ -11,6 +11,7 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
 // Direct DB connection - implements discussion forum without relying on the old backend
+// Supports both postgres.railway.internal (private) and public DATABASE_URL formats
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 if (!string.IsNullOrEmpty(dbConnStr))
