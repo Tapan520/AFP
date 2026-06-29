@@ -635,6 +635,25 @@ app.MapGet("/uploads/{**filePath}", async (string? filePath, IHttpClientFactory 
     }
 });
 
+// ?? DB status diagnostic (safe - never exposes credentials) ????????????????
+app.MapGet("/api/dbstatus", async () =>
+{
+    if (dbSource == null)
+        return Results.Json(new { db = "not_configured", hint = "Set DATABASE_URL env var on Railway AFP service" });
+    try
+    {
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*)::int FROM users";
+        var count = await cmd.ExecuteScalarAsync();
+        return Results.Json(new { db = "connected", users = count });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { db = "error", message = ex.Message }, statusCode: 500);
+    }
+});
+
 // ?? Run pending migrations (one-click from super admin) ?????????????????
 app.MapPost("/api/admin/run-migrations", async (HttpContext ctx, IHttpClientFactory f) =>
 {
