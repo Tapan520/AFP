@@ -147,38 +147,160 @@ app.UseRouting();
 app.UseAuthorization();
 app.MapRazorPages();
 
-// Ensure discussion tables exist (idempotent - safe every deploy).
+// Run full database migration on every startup - all steps are idempotent (safe to re-run)
 if (dbSource != null)
 {
-    try
+    async Task RunSql(string label, string sql)
     {
-        await using var mc = await dbSource.OpenConnectionAsync();
-        await using var mm = mc.CreateCommand();
-        mm.CommandText = @"
-            CREATE TABLE IF NOT EXISTS discussions (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                title VARCHAR(200) NOT NULL,
-                body TEXT NOT NULL,
-                category VARCHAR(50) NOT NULL DEFAULT 'general',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS discussion_replies (
-                id SERIAL PRIMARY KEY,
-                discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                body TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE INDEX IF NOT EXISTS idx_disc_cat ON discussions(category);
-            CREATE INDEX IF NOT EXISTS idx_disc_repl ON discussion_replies(discussion_id);
-            ";
-        await mm.ExecuteNonQueryAsync();
-        Console.WriteLine("Discussion tables ready.");
+        try
+        {
+            await using var c = await dbSource.OpenConnectionAsync();
+            await using var m = c.CreateCommand();
+            m.CommandText = sql;
+            await m.ExecuteNonQueryAsync();
+            Console.WriteLine($"Migration OK: {label}");
+        }
+        catch (Exception ex) { Console.WriteLine($"Migration [{label}]: {ex.Message}"); }
     }
-    catch (Exception ex) { Console.WriteLine($"Discussion migration: {ex.Message}"); }
+
+    // ── Tables ────────────────────────────────────────────────────────────────
+    await RunSql("pgcrypto",        "CREATE EXTENSION IF NOT EXISTS pgcrypto;");
+    await RunSql("cities",          @"CREATE TABLE IF NOT EXISTS cities (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, state VARCHAR(100), is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("nigams",          @"CREATE TABLE IF NOT EXISTS nigams (id SERIAL PRIMARY KEY, city_id INTEGER NOT NULL REFERENCES cities(id) ON DELETE CASCADE, name VARCHAR(150) NOT NULL, registration_fee NUMERIC(10,2) NOT NULL DEFAULT 200, renewal_fee NUMERIC(10,2) NOT NULL DEFAULT 150, transfer_fee NUMERIC(10,2) NOT NULL DEFAULT 100, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("zones",           @"CREATE TABLE IF NOT EXISTS zones (id SERIAL PRIMARY KEY, nigam_id INTEGER NOT NULL REFERENCES nigams(id) ON DELETE CASCADE, name VARCHAR(150) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("wards",           @"CREATE TABLE IF NOT EXISTS wards (id SERIAL PRIMARY KEY, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_number VARCHAR(80) NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("users",           @"CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(120) NOT NULL, mobile VARCHAR(15) NOT NULL UNIQUE, email VARCHAR(180) UNIQUE, password_hash TEXT NOT NULL, address TEXT, role VARCHAR(20) NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen','ward_admin','zone_admin','nigam_admin','city_admin','super_admin')), city_id INTEGER REFERENCES cities(id) ON DELETE SET NULL, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_id INTEGER REFERENCES wards(id) ON DELETE SET NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("pets",            @"CREATE TABLE IF NOT EXISTS pets (id SERIAL PRIMARY KEY, pet_id VARCHAR(30) UNIQUE, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, name VARCHAR(80) NOT NULL, species VARCHAR(30) NOT NULL, breed VARCHAR(80), colour VARCHAR(60), gender VARCHAR(10), date_of_birth DATE, registration_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (registration_status IN ('pending','approved','rejected')), licence_status VARCHAR(30) DEFAULT 'active', licence_expiry_date DATE, vaccine_next_due DATE, photo_url TEXT, certificate_url TEXT, admin_note TEXT, payment_id VARCHAR(100), txn_ref VARCHAR(100), breeding_opt_in BOOLEAN NOT NULL DEFAULT FALSE, city_id INTEGER REFERENCES cities(id) ON DELETE SET NULL, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_id INTEGER REFERENCES wards(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("reports",         @"CREATE TABLE IF NOT EXISTS reports (id SERIAL PRIMARY KEY, reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL, reporter_mobile VARCHAR(15), report_type VARCHAR(30), last_seen_address TEXT, status VARCHAR(20) NOT NULL DEFAULT 'open', city_id INTEGER REFERENCES cities(id) ON DELETE SET NULL, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_id INTEGER REFERENCES wards(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("report_comments", @"CREATE TABLE IF NOT EXISTS report_comments (id SERIAL PRIMARY KEY, report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE, admin_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, comment TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("doctors",         @"CREATE TABLE IF NOT EXISTS doctors (id SERIAL PRIMARY KEY, name VARCHAR(120) NOT NULL, qualification VARCHAR(120), specialization VARCHAR(120), clinic_name VARCHAR(150), address TEXT, mobile VARCHAR(15), timings VARCHAR(100), is_24hr BOOLEAN NOT NULL DEFAULT FALSE, city_id INTEGER REFERENCES cities(id) ON DELETE SET NULL, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_id INTEGER REFERENCES wards(id) ON DELETE SET NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("shops",           @"CREATE TABLE IF NOT EXISTS shops (id SERIAL PRIMARY KEY, name VARCHAR(150) NOT NULL, owner_name VARCHAR(120), address TEXT, mobile VARCHAR(15), timings VARCHAR(100), speciality VARCHAR(150), city_id INTEGER REFERENCES cities(id) ON DELETE SET NULL, nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL, zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL, ward_id INTEGER REFERENCES wards(id) ON DELETE SET NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("discussions",     @"CREATE TABLE IF NOT EXISTS discussions (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, title VARCHAR(200) NOT NULL, body TEXT NOT NULL, category VARCHAR(50) NOT NULL DEFAULT 'general', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+    await RunSql("disc_replies",    @"CREATE TABLE IF NOT EXISTS discussion_replies (id SERIAL PRIMARY KEY, discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());");
+
+    // ── Column migrations (safe on existing databases) ────────────────────────
+    await RunSql("col:nigam fees",    @"ALTER TABLE nigams ADD COLUMN IF NOT EXISTS registration_fee NUMERIC(10,2) NOT NULL DEFAULT 200; ALTER TABLE nigams ADD COLUMN IF NOT EXISTS renewal_fee NUMERIC(10,2) NOT NULL DEFAULT 150; ALTER TABLE nigams ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(10,2) NOT NULL DEFAULT 100;");
+    await RunSql("col:wards zone_id", @"ALTER TABLE wards ALTER COLUMN nigam_id DROP NOT NULL; ALTER TABLE wards ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;");
+    await RunSql("col:zone_id all",   @"ALTER TABLE users   ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE pets    ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE doctors ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE shops   ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;");
+    await RunSql("col:reports geo",   @"ALTER TABLE reports ADD COLUMN IF NOT EXISTS city_id  INTEGER REFERENCES cities(id)  ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS zone_id  INTEGER REFERENCES zones(id)  ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS ward_id  INTEGER REFERENCES wards(id)  ON DELETE SET NULL;");
+    await RunSql("col:pets breeding", @"ALTER TABLE pets ADD COLUMN IF NOT EXISTS breeding_opt_in BOOLEAN NOT NULL DEFAULT FALSE;");
+
+    // ── Indexes ───────────────────────────────────────────────────────────────
+    await RunSql("indexes", @"
+        CREATE INDEX IF NOT EXISTS idx_zones_nigam   ON zones(nigam_id);
+        CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role);
+        CREATE INDEX IF NOT EXISTS idx_users_mobile  ON users(mobile);
+        CREATE INDEX IF NOT EXISTS idx_users_city    ON users(city_id);
+        CREATE INDEX IF NOT EXISTS idx_users_nigam   ON users(nigam_id);
+        CREATE INDEX IF NOT EXISTS idx_users_zone    ON users(zone_id);
+        CREATE INDEX IF NOT EXISTS idx_users_ward    ON users(ward_id);
+        CREATE INDEX IF NOT EXISTS idx_pets_owner    ON pets(owner_id);
+        CREATE INDEX IF NOT EXISTS idx_pets_status   ON pets(registration_status);
+        CREATE INDEX IF NOT EXISTS idx_pets_zone     ON pets(zone_id);
+        CREATE INDEX IF NOT EXISTS idx_pets_ward     ON pets(ward_id);
+        CREATE INDEX IF NOT EXISTS idx_pets_breeding ON pets(breeding_opt_in) WHERE breeding_opt_in = TRUE;
+        CREATE INDEX IF NOT EXISTS idx_doctors_city  ON doctors(city_id);
+        CREATE INDEX IF NOT EXISTS idx_doctors_zone  ON doctors(zone_id);
+        CREATE INDEX IF NOT EXISTS idx_shops_city    ON shops(city_id);
+        CREATE INDEX IF NOT EXISTS idx_shops_zone    ON shops(zone_id);
+        CREATE INDEX IF NOT EXISTS idx_rpt_cmts_rid  ON report_comments(report_id);
+        CREATE INDEX IF NOT EXISTS idx_disc_cat      ON discussions(category);
+        CREATE INDEX IF NOT EXISTS idx_disc_repl     ON discussion_replies(discussion_id);");
+
+    // ── Update role constraint to include zone_admin ──────────────────────────
+    await RunSql("role:drop old", @"
+        DO $$
+        BEGIN
+          EXECUTE COALESCE(
+            (SELECT 'ALTER TABLE users DROP CONSTRAINT ' || quote_ident(conname)
+             FROM pg_constraint
+             WHERE conrelid = 'users'::regclass AND contype = 'c'
+               AND pg_get_constraintdef(oid) LIKE '%ward_admin%'
+               AND pg_get_constraintdef(oid) NOT LIKE '%zone_admin%'
+             LIMIT 1),
+            'SELECT 1');
+        END $$;");
+    await RunSql("role:add zone_admin", @"
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'users'::regclass AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%zone_admin%'
+          ) THEN
+            ALTER TABLE users ADD CONSTRAINT users_role_check
+              CHECK (role IN ('citizen','ward_admin','zone_admin','nigam_admin','city_admin','super_admin'));
+          END IF;
+        END $$;");
+
+    // ── Seed data ─────────────────────────────────────────────────────────────
+    await RunSql("seed:cities", @"
+        INSERT INTO cities (name, state) VALUES
+          ('Jaipur','Rajasthan'),('Delhi','Delhi'),('Mumbai','Maharashtra')
+        ON CONFLICT DO NOTHING;");
+
+    await RunSql("seed:nigam", @"
+        INSERT INTO nigams (id, city_id, name, is_active)
+        SELECT 1, c.id, 'Jaipur Municipal Corporation', TRUE
+        FROM cities c WHERE c.name = 'Jaipur'
+          AND NOT EXISTS (SELECT 1 FROM nigams WHERE id = 1);");
+
+    await RunSql("seed:zones", @"
+        INSERT INTO zones (id, nigam_id, name, is_active) VALUES
+          (10,1,'Heritage Zone',TRUE),(11,1,'Civil Lines Zone',TRUE),
+          (12,1,'Sindhi Camp Zone',TRUE),(13,1,'Vidyadhar Nagar Zone',TRUE),
+          (14,1,'Sanganer Zone',TRUE),(15,1,'Mansarovar Zone',TRUE),
+          (16,1,'Jhotwara Zone',TRUE),(17,1,'Amer Zone',TRUE)
+        ON CONFLICT (id) DO NOTHING;
+        SELECT setval('zones_id_seq', GREATEST(COALESCE((SELECT MAX(id) FROM zones), 17), 17));");
+
+    await RunSql("seed:wards", @"
+        INSERT INTO wards (ward_number, zone_id, nigam_id, is_active)
+        SELECT t.wn, t.zid::int, 1, TRUE FROM (VALUES
+          ('Ward 1 - Tripolia Bazar',10),('Ward 2 - Johari Bazar',10),('Ward 3 - Chandpole Bazar',10),
+          ('Ward 4 - Kishan Pole',10),('Ward 5 - Suraj Pole',10),('Ward 6 - Ghat Gate',10),
+          ('Ward 7 - New Gate',10),('Ward 8 - Sanganeri Gate',10),('Ward 9 - Ajmeri Gate',10),
+          ('Ward 10 - Chand Pole Gate',10),('Ward 11 - Ram Chandra Ji',10),('Ward 12 - Brahmpuri',10),
+          ('Ward 13 - Topkhana Desh',10),('Ward 14 - Ramganj Bazar',10),
+          ('Ward 15 - Civil Lines',11),('Ward 16 - Ram Niwas Garden',11),('Ward 17 - Collectorate',11),
+          ('Ward 18 - Bais Godam',11),('Ward 19 - Maharani Farm',11),('Ward 20 - Adarsh Nagar',11),
+          ('Ward 21 - Lal Kothi',11),('Ward 22 - Tilak Nagar',11),('Ward 23 - Nirman Nagar',11),
+          ('Ward 24 - Shastri Nagar',11),('Ward 25 - Gandhi Nagar',11),
+          ('Ward 26 - Sindhi Camp',12),('Ward 27 - Railway Station',12),('Ward 28 - Gopalbari',12),
+          ('Ward 29 - Nehru Nagar',12),('Ward 30 - Khatipura',12),('Ward 31 - Janta Colony',12),
+          ('Ward 32 - Sodala',12),('Ward 33 - Shyam Nagar',12),('Ward 34 - Naveen Shahdara',12),
+          ('Ward 35 - Idgah',12),
+          ('Ward 36 - Vidyadhar Nagar',13),('Ward 37 - Sanjay Nagar',13),('Ward 38 - Jawahar Nagar',13),
+          ('Ward 39 - Sikar Road',13),('Ward 40 - Vidhayak Puri',13),('Ward 41 - Durgapura',13),
+          ('Ward 42 - Sector 7 VN',13),('Ward 43 - Heera Path',13),('Ward 44 - Indira Gandhi Nagar',13),
+          ('Ward 45 - Triveni Nagar',13),('Ward 46 - Transport Nagar',13),
+          ('Ward 47 - Sanganer',14),('Ward 48 - Jaipur Airport',14),('Ward 49 - Bagru Road',14),
+          ('Ward 50 - Sitapura',14),('Ward 51 - Pratap Nagar',14),('Ward 52 - Dher Ka Balaji',14),
+          ('Ward 53 - Muhana',14),('Ward 54 - Chaksu Road',14),('Ward 55 - Govind Nagar',14),
+          ('Ward 56 - Kalwar Road',14),('Ward 57 - Harmara',14),
+          ('Ward 58 - Mansarovar Sec 1',15),('Ward 59 - Mansarovar Sec 2',15),
+          ('Ward 60 - Mansarovar Sec 3',15),('Ward 61 - Mansarovar Sec 4',15),
+          ('Ward 62 - Mansarovar Sec 5',15),('Ward 63 - Jagatpura',15),
+          ('Ward 64 - Tonk Road',15),('Ward 65 - Malviya Nagar',15),('Ward 66 - Chitrakoot',15),
+          ('Ward 67 - Lalarpura',15),('Ward 68 - Ramnagar',15),
+          ('Ward 69 - Jhotwara',16),('Ward 70 - Vidhyut Nagar',16),('Ward 71 - Shri Kishan Nagar',16),
+          ('Ward 72 - Moti Doongri Road',16),('Ward 73 - Kanta Chandra',16),('Ward 74 - Indira Bazar',16),
+          ('Ward 75 - Vikas Nagar',16),('Ward 76 - Amani Shah',16),('Ward 77 - Boytawala',16),
+          ('Ward 78 - Ajab Nagar',16),('Ward 79 - Kukas Road',16),
+          ('Ward 80 - Amer',17),('Ward 81 - Nahargarh Road',17),('Ward 82 - Jal Mahal',17),
+          ('Ward 83 - Brahmapuri',17),('Ward 84 - Moti Katla',17),('Ward 85 - Kanota',17),
+          ('Ward 86 - Kukas',17),('Ward 87 - Paota',17),('Ward 88 - Achrol',17),
+          ('Ward 89 - Mauzamabad',17),('Ward 90 - Goner',17),('Ward 91 - Bassi',17)
+        ) AS t(wn, zid)
+        WHERE NOT EXISTS (SELECT 1 FROM wards w WHERE w.zone_id = t.zid::int);");
+
+    await RunSql("seed:super_admin", @"
+        INSERT INTO users (name, mobile, email, password_hash, role, is_active) VALUES
+          ('Super Admin','9999999999','admin@nagarnigam.gov.in',
+           '$2a$10$.x6gPwSpMYgPrWh8J21p3O42zXdOInqke3I6ZDlvWpFz.obAt7AP6','super_admin',TRUE)
+        ON CONFLICT (mobile) DO NOTHING;");
+
+    Console.WriteLine("All migrations complete.");
 }
 
 // ?? Proxy base URL ????????????????????????????????????????????????????????????
