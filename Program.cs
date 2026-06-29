@@ -11,7 +11,7 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
 // Direct DB connection - implements discussion forum without relying on the old backend
-// Railway DATABASE_URL is a postgresql:// URI - must be converted to key=value for Npgsql
+// Railway DATABASE_URL uses postgres:// scheme - parsed manually as System.Uri rejects it
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 string? dbInitError = null;
@@ -19,21 +19,43 @@ if (!string.IsNullOrEmpty(dbConnStr))
 {
     try
     {
-        // Parse the postgresql:// URI into an NpgsqlConnectionStringBuilder
-        var uri      = new Uri(dbConnStr);
-        var userInfo = uri.UserInfo.Split(':', 2);
-        var csb      = new NpgsqlConnectionStringBuilder
+        // Strip scheme prefix (postgres:// or postgresql://)
+        var s = dbConnStr;
+        if      (s.StartsWith("postgresql://")) s = s.Substring("postgresql://".Length);
+        else if (s.StartsWith("postgres://"))   s = s.Substring("postgres://".Length);
+
+        // Split userinfo@host/db  ->  find the LAST '@' to handle passwords with '@'
+        var atIdx    = s.LastIndexOf('@');
+        var userInfo = s.Substring(0, atIdx);
+        var hostPart = s.Substring(atIdx + 1);
+
+        // user:password
+        var ci   = userInfo.IndexOf(':');
+        var user = ci >= 0 ? userInfo.Substring(0, ci) : userInfo;
+        var pass = ci >= 0 ? userInfo.Substring(ci + 1) : "";
+
+        // host:port/database
+        var si       = hostPart.IndexOf('/');
+        var hostPort = si >= 0 ? hostPart.Substring(0, si) : hostPart;
+        var database = si >= 0 ? hostPart.Substring(si + 1) : "railway";
+
+        // host:port
+        var pi      = hostPort.LastIndexOf(':');
+        var host    = pi >= 0 ? hostPort.Substring(0, pi) : hostPort;
+        var portStr = pi >= 0 ? hostPort.Substring(pi + 1) : "5432";
+
+        var csb = new NpgsqlConnectionStringBuilder
         {
-            Host                  = uri.Host,
-            Port                  = uri.Port > 0 ? uri.Port : 5432,
-            Database              = uri.AbsolutePath.TrimStart('/'),
-            Username              = Uri.UnescapeDataString(userInfo[0]),
-            Password              = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "",
-            SslMode               = SslMode.Disable,   // Railway internal = no SSL
+            Host                   = host,
+            Port                   = int.TryParse(portStr, out var p) ? p : 5432,
+            Database               = database,
+            Username               = Uri.UnescapeDataString(user),
+            Password               = Uri.UnescapeDataString(pass),
+            SslMode                = SslMode.Disable,
             TrustServerCertificate = true,
         };
         dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
-        Console.WriteLine($"DB source initialized: {uri.Host}:{uri.Port}/{csb.Database}");
+        Console.WriteLine($"DB source initialized: {host}:{portStr}/{database}");
     }
     catch (Exception ex)
     {
