@@ -11,7 +11,7 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
 // Direct DB connection - implements discussion forum without relying on the old backend
-// Supports both postgres.railway.internal (private) and public DATABASE_URL formats
+// Railway DATABASE_URL is a postgresql:// URI - must be converted to key=value for Npgsql
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 string? dbInitError = null;
@@ -19,11 +19,21 @@ if (!string.IsNullOrEmpty(dbConnStr))
 {
     try
     {
-        var dsb = new NpgsqlDataSourceBuilder(dbConnStr);
-        // Railway internal connections (postgres.railway.internal) don't use SSL
-        dsb.ConnectionStringBuilder.SslMode = SslMode.Disable;
-        dbSource = dsb.Build();
-        Console.WriteLine("DB source initialized.");
+        // Parse the postgresql:// URI into an NpgsqlConnectionStringBuilder
+        var uri      = new Uri(dbConnStr);
+        var userInfo = uri.UserInfo.Split(':', 2);
+        var csb      = new NpgsqlConnectionStringBuilder
+        {
+            Host                  = uri.Host,
+            Port                  = uri.Port > 0 ? uri.Port : 5432,
+            Database              = uri.AbsolutePath.TrimStart('/'),
+            Username              = Uri.UnescapeDataString(userInfo[0]),
+            Password              = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "",
+            SslMode               = SslMode.Disable,   // Railway internal = no SSL
+            TrustServerCertificate = true,
+        };
+        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
+        Console.WriteLine($"DB source initialized: {uri.Host}:{uri.Port}/{csb.Database}");
     }
     catch (Exception ex)
     {
