@@ -14,14 +14,22 @@ builder.Services.AddHttpClient();
 // Supports both postgres.railway.internal (private) and public DATABASE_URL formats
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
+string? dbInitError = null;
 if (!string.IsNullOrEmpty(dbConnStr))
 {
     try
     {
-        var csb = new NpgsqlConnectionStringBuilder(dbConnStr) { TrustServerCertificate = true };
-        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
+        var dsb = new NpgsqlDataSourceBuilder(dbConnStr);
+        // Railway internal connections (postgres.railway.internal) don't use SSL
+        dsb.ConnectionStringBuilder.SslMode = SslMode.Disable;
+        dbSource = dsb.Build();
+        Console.WriteLine("DB source initialized.");
     }
-    catch (Exception ex) { Console.WriteLine($"DB init: {ex.Message}"); }
+    catch (Exception ex)
+    {
+        dbInitError = ex.Message;
+        Console.WriteLine($"DB init error: {ex.Message}");
+    }
 }
 
 var app = builder.Build();
@@ -640,7 +648,12 @@ app.MapGet("/uploads/{**filePath}", async (string? filePath, IHttpClientFactory 
 app.MapGet("/api/dbstatus", async () =>
 {
     if (dbSource == null)
-        return Results.Json(new { db = "not_configured", hint = "Set DATABASE_URL env var on Railway AFP service" });
+        return Results.Json(new {
+            db          = "not_configured",
+            has_env     = !string.IsNullOrEmpty(dbConnStr),
+            init_error  = dbInitError,
+            hint        = "Set DATABASE_URL env var on Railway AFP service"
+        });
     try
     {
         await using var conn = await dbSource.OpenConnectionAsync();
