@@ -183,7 +183,8 @@ if (dbSource != null)
     await RunSql("col:wards zone_id", @"ALTER TABLE wards ALTER COLUMN nigam_id DROP NOT NULL; ALTER TABLE wards ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;");
     await RunSql("col:zone_id all",   @"ALTER TABLE users   ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE pets    ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE doctors ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL; ALTER TABLE shops   ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;");
     await RunSql("col:reports geo",   @"ALTER TABLE reports ADD COLUMN IF NOT EXISTS city_id  INTEGER REFERENCES cities(id)  ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS nigam_id INTEGER REFERENCES nigams(id) ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS zone_id  INTEGER REFERENCES zones(id)  ON DELETE SET NULL; ALTER TABLE reports ADD COLUMN IF NOT EXISTS ward_id  INTEGER REFERENCES wards(id)  ON DELETE SET NULL;");
-    await RunSql("col:pets breeding", @"ALTER TABLE pets ADD COLUMN IF NOT EXISTS breeding_opt_in BOOLEAN NOT NULL DEFAULT FALSE;");
+    await RunSql("col:pets breeding",    @"ALTER TABLE pets ADD COLUMN IF NOT EXISTS breeding_opt_in BOOLEAN NOT NULL DEFAULT FALSE;");
+    await RunSql("col:reports resolve",  @"ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolution_note TEXT; ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ; ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL;");
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     await RunSql("indexes", @"
@@ -298,7 +299,11 @@ if (dbSource != null)
         INSERT INTO users (name, mobile, email, password_hash, role, is_active) VALUES
           ('Super Admin','9999999999','admin@nagarnigam.gov.in',
            '$2a$10$.x6gPwSpMYgPrWh8J21p3O42zXdOInqke3I6ZDlvWpFz.obAt7AP6','super_admin',TRUE)
-        ON CONFLICT (mobile) DO NOTHING;");
+        ON CONFLICT (mobile) DO UPDATE
+          SET password_hash = EXCLUDED.password_hash,
+              role          = EXCLUDED.role,
+              email         = EXCLUDED.email,
+              is_active     = TRUE;");
 
     Console.WriteLine("All migrations complete.");
 }
