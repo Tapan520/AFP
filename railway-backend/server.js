@@ -25,6 +25,8 @@ const PORT = process.env.PORT || 3000;
 // Allow the .NET frontend origin plus local development
 const allowedOrigins = [
   process.env.CORS_ORIGIN,
+  // Railway production frontend
+  "https://afp.up.railway.app",
   // .NET launchSettings.json profiles
   "https://localhost:7207",
   "http://localhost:5009",
