@@ -1,4 +1,4 @@
-# nixpacks.toml — tells Railway/Nixpacks to use the .NET 8 SDK to build
+# nixpacks.toml - tells Railway/Nixpacks to use the .NET 8 SDK to build
 [phases.build]
   cmds = [
     "dotnet publish AFP.csproj -c Release -o /app/publish --no-self-contained -r linux-x64"
