@@ -575,6 +575,8 @@ app.MapGet("/api/discussions", async (HttpContext ctx, IHttpClientFactory f) =>
     {
         var qs   = ctx.Request.QueryString.Value ?? "";
         var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/discussions{qs}");
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return Results.Content("[]", "application/json");
         return await SafeGet(resp, "[]");
     }
     catch (Exception ex)
@@ -588,6 +590,8 @@ app.MapGet("/api/discussions/{id:int}", async (int id, HttpContext ctx, IHttpCli
     try
     {
         var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/discussions/{id}");
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return Results.Json(new { error = "Discussion not found." }, statusCode: 404);
         return await SafeGet(resp);
     }
     catch (Exception ex)
