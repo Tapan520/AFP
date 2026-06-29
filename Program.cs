@@ -11,80 +11,125 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 
 // Direct DB connection - implements discussion forum without relying on the old backend
-// Tries individual PG* vars first (Railway injects these automatically), then DATABASE_URL
+// Supports both Railway private (.railway.internal - no SSL) and public URLs (SSL required)
 var dbConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
 NpgsqlDataSource? dbSource = null;
 string? dbInitError = null;
 string? dbHost = null;
+string? dbConnectError = null;
+
+NpgsqlConnectionStringBuilder? ParseUrl(string url)
+{
+    var s = url.Trim();
+    if      (s.StartsWith("postgresql://")) s = s.Substring("postgresql://".Length);
+    else if (s.StartsWith("postgres://"))   s = s.Substring("postgres://".Length);
+    else return null;
+
+    var atIdx = s.LastIndexOf('@');
+    if (atIdx < 0) return null;
+    var userInfo = s.Substring(0, atIdx);
+    var hostPart = s.Substring(atIdx + 1);
+
+    var ci   = userInfo.IndexOf(':');
+    var user = ci >= 0 ? userInfo.Substring(0, ci) : userInfo;
+    var pass = ci >= 0 ? userInfo.Substring(ci + 1) : "";
+
+    var si       = hostPart.IndexOf('/');
+    var hostPort = si >= 0 ? hostPart.Substring(0, si) : hostPart;
+    var database = si >= 0 ? hostPart.Substring(si + 1) : "railway";
+
+    var pi      = hostPort.LastIndexOf(':');
+    var host    = pi >= 0 ? hostPort.Substring(0, pi) : hostPort;
+    var portStr = pi >= 0 ? hostPort.Substring(pi + 1) : "5432";
+
+    // Railway internal hostname = no SSL; public proxy = require SSL
+    var isInternal = host.EndsWith(".railway.internal", StringComparison.OrdinalIgnoreCase);
+
+    return new NpgsqlConnectionStringBuilder
+    {
+        Host                   = host,
+        Port                   = int.TryParse(portStr, out var p) ? p : 5432,
+        Database               = database,
+        Username               = Uri.UnescapeDataString(user),
+        Password               = Uri.UnescapeDataString(pass),
+        SslMode                = isInternal ? SslMode.Disable : SslMode.Prefer,
+        TrustServerCertificate = true,
+        Timeout                = 10,
+        CommandTimeout         = 15,
+    };
+}
+
 try
 {
-    // Strategy 1: Use individual PG* env vars (Railway injects these automatically)
-    var pgHost = Environment.GetEnvironmentVariable("PGHOST");
-    var pgPort = Environment.GetEnvironmentVariable("PGPORT") ?? "5432";
-    var pgUser = Environment.GetEnvironmentVariable("PGUSER");
-    var pgPass = Environment.GetEnvironmentVariable("PGPASSWORD");
-    var pgDb   = Environment.GetEnvironmentVariable("PGDATABASE") ?? "railway";
+    NpgsqlConnectionStringBuilder? csb = null;
 
+    // Strategy 1: individual PG* vars Railway can inject via Reference Variable
+    var pgHost = Environment.GetEnvironmentVariable("PGHOST");
+    var pgUser = Environment.GetEnvironmentVariable("PGUSER");
     if (!string.IsNullOrEmpty(pgHost) && !string.IsNullOrEmpty(pgUser))
     {
-        dbHost = $"{pgHost}:{pgPort}/{pgDb}";
-        var csb = new NpgsqlConnectionStringBuilder
+        var pgPort = Environment.GetEnvironmentVariable("PGPORT") ?? "5432";
+        var pgPass = Environment.GetEnvironmentVariable("PGPASSWORD") ?? "";
+        var pgDb   = Environment.GetEnvironmentVariable("PGDATABASE") ?? "railway";
+        var isInt  = pgHost.EndsWith(".railway.internal", StringComparison.OrdinalIgnoreCase);
+        csb = new NpgsqlConnectionStringBuilder
         {
             Host                   = pgHost,
             Port                   = int.TryParse(pgPort, out var pp) ? pp : 5432,
             Database               = pgDb,
             Username               = pgUser,
-            Password               = pgPass ?? "",
-            SslMode                = SslMode.Disable,
+            Password               = pgPass,
+            SslMode                = isInt ? SslMode.Disable : SslMode.Prefer,
             TrustServerCertificate = true,
+            Timeout                = 10,
+            CommandTimeout         = 15,
         };
-        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
-        Console.WriteLine($"DB initialized via PG* vars: {dbHost}");
+        dbHost = $"{pgHost}:{pgPort}/{pgDb}";
+        Console.WriteLine($"DB: using PG* vars → {dbHost}");
     }
     else if (!string.IsNullOrEmpty(dbConnStr))
     {
-        // Strategy 2: Manually parse postgres:// or postgresql:// URI
-        var s = dbConnStr;
-        if      (s.StartsWith("postgresql://")) s = s.Substring("postgresql://".Length);
-        else if (s.StartsWith("postgres://"))   s = s.Substring("postgres://".Length);
-        else throw new Exception($"Unknown scheme: {s.Split(':')[0]}");
-
-        var atIdx    = s.LastIndexOf('@');
-        if (atIdx < 0) throw new Exception("Missing '@' in DATABASE_URL");
-        var userInfo = s.Substring(0, atIdx);
-        var hostPart = s.Substring(atIdx + 1);
-
-        var ci   = userInfo.IndexOf(':');
-        var user = ci >= 0 ? userInfo.Substring(0, ci) : userInfo;
-        var pass = ci >= 0 ? userInfo.Substring(ci + 1) : "";
-
-        var si       = hostPart.IndexOf('/');
-        var hostPort = si >= 0 ? hostPart.Substring(0, si) : hostPart;
-        var database = si >= 0 ? hostPart.Substring(si + 1) : "railway";
-
-        var pi      = hostPort.LastIndexOf(':');
-        var host    = pi >= 0 ? hostPort.Substring(0, pi) : hostPort;
-        var portStr = pi >= 0 ? hostPort.Substring(pi + 1) : "5432";
-
-        dbHost = $"{host}:{portStr}/{database}";
-        var csb2 = new NpgsqlConnectionStringBuilder
+        csb = ParseUrl(dbConnStr);
+        if (csb != null)
         {
-            Host                   = host,
-            Port                   = int.TryParse(portStr, out var p2) ? p2 : 5432,
-            Database               = database,
-            Username               = Uri.UnescapeDataString(user),
-            Password               = Uri.UnescapeDataString(pass),
-            SslMode                = SslMode.Disable,
-            TrustServerCertificate = true,
-        };
-        dbSource = NpgsqlDataSource.Create(csb2.ConnectionString);
-        Console.WriteLine($"DB initialized via DATABASE_URL: {dbHost}");
+            dbHost = $"{csb.Host}:{csb.Port}/{csb.Database}";
+            Console.WriteLine($"DB: using DATABASE_URL → {dbHost}");
+        }
+        else
+        {
+            dbInitError = "DATABASE_URL format not recognised";
+        }
     }
+    else
+    {
+        dbInitError = "No DATABASE_URL or PGHOST found in environment";
+    }
+
+    if (csb != null)
+        dbSource = NpgsqlDataSource.Create(csb.ConnectionString);
 }
 catch (Exception ex)
 {
     dbInitError = ex.Message;
     Console.WriteLine($"DB init error: {ex.Message}");
+}
+
+// Test the connection eagerly so problems show up in /api/dbstatus → db:"error"
+if (dbSource != null)
+{
+    try
+    {
+        await using var tc  = await dbSource.OpenConnectionAsync();
+        await using var tcm = tc.CreateCommand();
+        tcm.CommandText = "SELECT 1";
+        await tcm.ExecuteScalarAsync();
+        Console.WriteLine($"DB connection OK: {dbHost}");
+    }
+    catch (Exception ex)
+    {
+        dbConnectError = ex.Message;
+        Console.WriteLine($"DB connect test failed: {ex.Message}");
+    }
 }
 
 var app = builder.Build();
@@ -710,6 +755,12 @@ app.MapGet("/api/dbstatus", async () =>
             parsed_host = dbHost,
             init_error  = dbInitError,
         });
+    if (dbConnectError != null)
+        return Results.Json(new {
+            db            = "connect_failed",
+            host          = dbHost,
+            connect_error = dbConnectError,
+        }, statusCode: 500);
     try
     {
         await using var conn = await dbSource.OpenConnectionAsync();
