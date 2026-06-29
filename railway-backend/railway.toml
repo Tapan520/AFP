@@ -1,11 +1,8 @@
-# railway.toml  –  Railway deployment config for the AFP API
+# railway.toml - Railway deployment config for the AFP API
 [build]
-  builder = "NIXPACKS"
+  builder = "nixpacks"
 
 [deploy]
   startCommand = "node server.js"
   restartPolicyType = "ON_FAILURE"
   restartPolicyMaxRetries = 3
-
-[[services]]
-  name = "afp-api"
