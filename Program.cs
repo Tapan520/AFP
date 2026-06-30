@@ -1333,6 +1333,46 @@ app.MapGet("/uploads/{**filePath}", async (string? filePath, IHttpClientFactory 
     }
 });
 
+// ?? DB schema inspector - verifies all required columns exist in each table ??
+app.MapGet("/api/dbschema", async () =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT table_name, column_name, data_type,
+                   is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name IN (
+                'users','pets','reports','report_comments',
+                'discussions','discussion_replies',
+                'cities','nigams','zones','wards',
+                'doctors','shops'
+              )
+            ORDER BY table_name, ordinal_position
+            """;
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        var schema = new Dictionary<string, List<object>>();
+        while (await rdr.ReadAsync())
+        {
+            var tbl = rdr.GetString(0);
+            if (!schema.ContainsKey(tbl)) schema[tbl] = new();
+            schema[tbl].Add(new {
+                column   = rdr.GetString(1),
+                type     = rdr.GetString(2),
+                nullable = rdr.GetString(3),
+                @default = rdr.IsDBNull(4) ? null : rdr.GetString(4)
+            });
+        }
+        return Results.Json(schema);
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
 // ?? DB status diagnostic (safe - never exposes credentials) ????????????????
 app.MapGet("/api/dbstatus", async () =>
 {
