@@ -146,7 +146,7 @@ async function loadVaccineReminders() {
             .sort((a, b) => a.dv - b.dv);
 
         if (withDue.length === 0) {
-            body.innerHTML = `<div class="p-18">${alertBoxHTML("info", "No vaccine due dates recorded. Upload vaccination certificates from each pet&rsquo;s Health tab to start tracking.")}</div>${bottomNavHTML("home")}`;
+            body.innerHTML = `<div class="p-18">${alertBoxHTML("info", "No vaccine due dates recorded. Upload vaccination certificates from each pet's Health tab to start tracking.")}</div>${bottomNavHTML("home")}`;      
             return;
         }
 

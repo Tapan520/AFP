@@ -86,6 +86,7 @@ function bottomNavHTML(active) {
     const items = [
         ["home",    "&#x1F3E0;", "Home"],
         ["search",  "&#x1F50D;", "Search"],
+        ["meter",   "&#x1F4CA;", "Stats"],
         ["profile", "&#x1F464;", "Profile"],
     ];
     return `<div class="bnav">
@@ -99,7 +100,7 @@ function bottomNavHTML(active) {
 
 /** Route bottom nav clicks */
 function bnavGo(key) {
-    const map = { home: "dashboard", search: "searchPet", profile: "profile" };
+    const map = { home: "dashboard", search: "searchPet", meter: "petMeter", profile: "profile" };
     AFP.go(map[key] || "dashboard");
 }
 
