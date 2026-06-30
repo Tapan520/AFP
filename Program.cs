@@ -492,6 +492,159 @@ app.MapPut("/api/geo/{**path}", async (string? path, HttpContext ctx, IHttpClien
     }
 });
 
+// ?? Pets – direct DB endpoints (stats / search / breeding / adoption) ??????????
+// Registered before the catch-all proxy so they take routing precedence.
+
+app.MapGet("/api/pets/stats", async () =>
+{
+    if (dbSource == null) return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        await using var conn  = await dbSource.OpenConnectionAsync();
+        await using var cmd   = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+              COUNT(*)::int                                                                     AS "totalPets",
+              COUNT(*) FILTER (WHERE registration_status='approved'
+                AND (licence_expiry_date IS NULL OR licence_expiry_date >= NOW()))::int         AS "activeLicences",
+              COUNT(*) FILTER (WHERE registration_status='pending')::int                       AS "pendingCount"
+            FROM pets
+            """;
+        await using var rdr  = await cmd.ExecuteReaderAsync();
+        var totals = (await ReadRows(rdr)).FirstOrDefault() ?? new();
+        await rdr.DisposeAsync(); await cmd.DisposeAsync();
+        await using var cmd2 = conn.CreateCommand();
+        cmd2.CommandText = """
+            SELECT c.name,
+                   COUNT(p.id)::int                                               AS total,
+                   COUNT(p.id) FILTER (WHERE p.species='dog')::int               AS dogs,
+                   COUNT(p.id) FILTER (WHERE p.species='cat')::int               AS cats,
+                   COUNT(p.id) FILTER (WHERE p.species NOT IN ('dog','cat'))::int AS others
+            FROM cities c LEFT JOIN pets p ON p.city_id = c.id
+            GROUP BY c.id ORDER BY total DESC
+            """;
+        await using var rdr2 = await cmd2.ExecuteReaderAsync();
+        totals["cities"] = await ReadRows(rdr2);
+        return Results.Json(totals);
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapGet("/api/pets/search", async (HttpContext ctx) =>
+{
+    if (dbSource == null) return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        var q      = ctx.Request.Query["q"].FirstOrDefault()      ?? "";
+        var cityId = ctx.Request.Query["cityId"].FirstOrDefault() ?? "";
+        var where  = new List<string> { "p.registration_status = 'approved'" };
+        var parms  = new List<NpgsqlParameter>();
+        int n = 1;
+        if (!string.IsNullOrEmpty(q))
+        {
+            where.Add($"(p.name ILIKE ${n} OR u.name ILIKE ${n} OR p.pet_id ILIKE ${n})");
+            n++;
+            parms.Add(new NpgsqlParameter { Value = $"%{q}%" });
+        }
+        if (!string.IsNullOrEmpty(cityId) && int.TryParse(cityId, out var ci))
+            { where.Add($"p.city_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = ci }); }
+        var ws = "WHERE " + string.Join(" AND ", where);
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT p.*, u.name AS owner_name, u.mobile AS owner_mobile,
+                   c.name AS city_name, ng.name AS nigam_name, w.ward_number
+            FROM pets p
+            LEFT JOIN users  u  ON u.id  = p.owner_id
+            LEFT JOIN cities c  ON c.id  = p.city_id
+            LEFT JOIN nigams ng ON ng.id = p.nigam_id
+            LEFT JOIN wards  w  ON w.id  = p.ward_id
+            {ws}
+            ORDER BY p.name LIMIT 50
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        return Results.Json(await ReadRows(rdr));
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapGet("/api/pets/breeding", async (HttpContext ctx) =>
+{
+    if (dbSource == null) return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        var species = ctx.Request.Query["species"].FirstOrDefault() ?? "";
+        var breed   = ctx.Request.Query["breed"].FirstOrDefault()   ?? "";
+        var gender  = ctx.Request.Query["gender"].FirstOrDefault()  ?? "";
+        var cityId  = ctx.Request.Query["cityId"].FirstOrDefault()  ?? "";
+        var where   = new List<string> { "p.registration_status = 'approved'", "p.breeding_opt_in = TRUE" };
+        var parms   = new List<NpgsqlParameter>();
+        int n = 1;
+        if (!string.IsNullOrEmpty(species)) { where.Add($"p.species = ${n++}");   parms.Add(new NpgsqlParameter { Value = species }); }
+        if (!string.IsNullOrEmpty(breed))   { where.Add($"p.breed ILIKE ${n++}"); parms.Add(new NpgsqlParameter { Value = $"%{breed}%" }); }
+        if (!string.IsNullOrEmpty(gender))  { where.Add($"p.gender = ${n++}");    parms.Add(new NpgsqlParameter { Value = gender }); }
+        if (!string.IsNullOrEmpty(cityId) && int.TryParse(cityId, out var ci))
+            { where.Add($"p.city_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = ci }); }
+        var ws = "WHERE " + string.Join(" AND ", where);
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT p.id, p.name, p.species, p.breed, p.colour, p.gender,
+                   p.date_of_birth, p.photo_url, p.pet_id, p.breeding_opt_in, p.created_at,
+                   u.name AS owner_name,
+                   c.name AS city_name, w.ward_number
+            FROM pets p
+            LEFT JOIN users  u  ON u.id  = p.owner_id
+            LEFT JOIN cities c  ON c.id  = p.city_id
+            LEFT JOIN wards  w  ON w.id  = p.ward_id
+            {ws}
+            ORDER BY p.name LIMIT 50
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr  = await cmd.ExecuteReaderAsync();
+        var rows = await ReadRows(rdr);
+        foreach (var row in rows) row["owner_mobile"] = null;
+        return Results.Json(rows);
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapGet("/api/pets/adoption", async (HttpContext ctx) =>
+{
+    if (dbSource == null) return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        var cityId = ctx.Request.Query["cityId"].FirstOrDefault() ?? "";
+        var where  = new List<string> { "p.registration_status = 'approved'" };
+        var parms  = new List<NpgsqlParameter>();
+        int n = 1;
+        if (!string.IsNullOrEmpty(cityId) && int.TryParse(cityId, out var ci))
+            { where.Add($"p.city_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = ci }); }
+        var ws = "WHERE " + string.Join(" AND ", where);
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT p.id, p.name, p.species, p.breed, p.colour, p.gender,
+                   p.date_of_birth, p.photo_url, p.pet_id, p.created_at,
+                   u.name AS owner_name,
+                   c.name AS city_name, w.ward_number
+            FROM pets p
+            LEFT JOIN users  u  ON u.id  = p.owner_id
+            LEFT JOIN cities c  ON c.id  = p.city_id
+            LEFT JOIN wards  w  ON w.id  = p.ward_id
+            {ws}
+            ORDER BY p.created_at DESC LIMIT 20
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        var rows = await ReadRows(rdr);
+        foreach (var row in rows) row["owner_mobile"] = null;
+        return Results.Json(rows);
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
 // ?? Pets proxy ????????????????????????????????????????????????????????????????
 app.MapGet("/api/pets/{**path}", async (string? path, HttpContext ctx, IHttpClientFactory f) =>
 {
@@ -580,152 +733,176 @@ app.MapMethods("/api/pets/{**path}", new[] { "PATCH" }, async (string? path, Htt
 
 // ?? Doctors proxy (public GET + admin write) ??????????????????????????????????
 // GET /api/doctors  � used by citizen search screen (AFP.GET)
-app.MapGet("/api/doctors", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var qs   = ctx.Request.QueryString.Value ?? "";
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/doctors{qs}");
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Results.Content("[]", "application/json");
-        return await SafeGet(resp, "[]");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+// doctors + shops -- direct PostgreSQL (no Node.js dependency)
+app.MapGet("/api/doctors", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var cId=ctx.Request.Query["cityId"].FirstOrDefault()??""; var q=ctx.Request.Query["q"].FirstOrDefault()??"";
+        var w=new List<string>{"d.is_active = TRUE"}; var p=new List<NpgsqlParameter>(); int n=1;
+        if(!string.IsNullOrEmpty(cId)&&int.TryParse(cId,out var ci)){w.Add($"d.city_id=${n++}");p.Add(new NpgsqlParameter{Value=ci});}
+        if(!string.IsNullOrEmpty(q)){w.Add($"(d.name ILIKE ${n} OR d.clinic_name ILIKE ${n} OR d.specialization ILIKE ${n})");n++;p.Add(new NpgsqlParameter{Value=$"%{q}%"});}
+        var ws="WHERE "+string.Join(" AND ",w); await using var c=await dbSource.OpenConnectionAsync(); await using var cmd=c.CreateCommand();
+        cmd.CommandText=$"SELECT d.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM doctors d LEFT JOIN cities ci ON ci.id=d.city_id LEFT JOIN nigams ng ON ng.id=d.nigam_id LEFT JOIN zones z ON z.id=d.zone_id LEFT JOIN wards ww ON ww.id=d.ward_id {ws} ORDER BY d.name LIMIT 100";
+        foreach(var pm in p)cmd.Parameters.Add(pm); await using var rdr=await cmd.ExecuteReaderAsync(); return Results.Json(await ReadRows(rdr));
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-
-// GET /api/admin/doctors  � used by DoctorMgmt module
-app.MapGet("/api/admin/doctors", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var qs   = ctx.Request.QueryString.Value ?? "";
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/doctors{qs}");
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Results.Content("[]", "application/json");
-        return await SafeGet(resp, "[]");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapGet("/api/admin/doctors", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var cId=ctx.Request.Query["cityId"].FirstOrDefault()??""; var ngId=ctx.Request.Query["nigamId"].FirstOrDefault()??"";
+        var zId=ctx.Request.Query["zoneId"].FirstOrDefault()??""; var wId=ctx.Request.Query["wardId"].FirstOrDefault()??"";
+        var q=ctx.Request.Query["q"].FirstOrDefault()??""; var w=new List<string>{"d.is_active = TRUE"}; var p=new List<NpgsqlParameter>(); int n=1;
+        if(!string.IsNullOrEmpty(cId)&&int.TryParse(cId,out var ci)){w.Add($"d.city_id=${n++}");p.Add(new NpgsqlParameter{Value=ci});}
+        if(!string.IsNullOrEmpty(ngId)&&int.TryParse(ngId,out var ni)){w.Add($"d.nigam_id=${n++}");p.Add(new NpgsqlParameter{Value=ni});}
+        if(!string.IsNullOrEmpty(zId)&&int.TryParse(zId,out var zi)){w.Add($"d.zone_id=${n++}");p.Add(new NpgsqlParameter{Value=zi});}
+        if(!string.IsNullOrEmpty(wId)&&int.TryParse(wId,out var wi)){w.Add($"d.ward_id=${n++}");p.Add(new NpgsqlParameter{Value=wi});}
+        if(!string.IsNullOrEmpty(q)){w.Add($"(d.name ILIKE ${n} OR d.clinic_name ILIKE ${n} OR d.specialization ILIKE ${n})");n++;p.Add(new NpgsqlParameter{Value=$"%{q}%"});}
+        var ws="WHERE "+string.Join(" AND ",w); await using var c=await dbSource.OpenConnectionAsync(); await using var cmd=c.CreateCommand();
+        cmd.CommandText=$"SELECT d.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM doctors d LEFT JOIN cities ci ON ci.id=d.city_id LEFT JOIN nigams ng ON ng.id=d.nigam_id LEFT JOIN zones z ON z.id=d.zone_id LEFT JOIN wards ww ON ww.id=d.ward_id {ws} ORDER BY d.name LIMIT 200";
+        foreach(var pm in p)cmd.Parameters.Add(pm); await using var rdr=await cmd.ExecuteReaderAsync(); return Results.Json(await ReadRows(rdr));
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapPost("/api/admin/doctors", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PostAsync($"{backendBase}/api/doctors",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapPost("/api/admin/doctors", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var bs=await new StreamReader(ctx.Request.Body).ReadToEndAsync(); using var doc=JsonDocument.Parse(bs); var r=doc.RootElement;
+        var nm=r.TryGetProperty("name",out var _n)?_n.GetString()?.Trim():null; var mob=r.TryGetProperty("mobile",out var _m)?_m.GetString()?.Trim():null;
+        var ql=r.TryGetProperty("qualification",out var _q)?_q.GetString()?.Trim():null; var sp=r.TryGetProperty("specialization",out var _s)?_s.GetString()?.Trim():null;
+        var cl=r.TryGetProperty("clinicName",out var _cl)?_cl.GetString()?.Trim():null; var ad=r.TryGetProperty("address",out var _a)?_a.GetString()?.Trim():null;
+        var tm=r.TryGetProperty("timings",out var _t)?_t.GetString()?.Trim():null; bool i24=r.TryGetProperty("is24hr",out var _24)&&_24.ValueKind==JsonValueKind.True;
+        int? ci=r.TryGetProperty("cityId",out var _ci)&&_ci.ValueKind==JsonValueKind.Number?_ci.GetInt32():(int?)null;
+        int? ni=r.TryGetProperty("nigamId",out var _ni)&&_ni.ValueKind==JsonValueKind.Number?_ni.GetInt32():(int?)null;
+        int? zi=r.TryGetProperty("zoneId",out var _zi)&&_zi.ValueKind==JsonValueKind.Number?_zi.GetInt32():(int?)null;
+        int? wi=r.TryGetProperty("wardId",out var _wi)&&_wi.ValueKind==JsonValueKind.Number?_wi.GetInt32():(int?)null;
+        if(string.IsNullOrWhiteSpace(nm)||string.IsNullOrWhiteSpace(mob))return Results.Json(new{error="name and mobile required."},statusCode:400);
+        await using var con=await dbSource.OpenConnectionAsync(); await using var ins=con.CreateCommand();
+        ins.CommandText="INSERT INTO doctors(name,qualification,specialization,clinic_name,address,mobile,timings,is_24hr,city_id,nigam_id,zone_id,ward_id)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)RETURNING id";
+        ins.Parameters.Add(new NpgsqlParameter{Value=nm}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)ql??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)sp??DBNull.Value});
+        ins.Parameters.Add(new NpgsqlParameter{Value=(object?)cl??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)ad??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=mob});
+        ins.Parameters.Add(new NpgsqlParameter{Value=(object?)tm??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=i24});
+        ins.Parameters.Add(new NpgsqlParameter{Value=ci.HasValue?(object)ci.Value:DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=ni.HasValue?(object)ni.Value:DBNull.Value});
+        ins.Parameters.Add(new NpgsqlParameter{Value=zi.HasValue?(object)zi.Value:DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=wi.HasValue?(object)wi.Value:DBNull.Value});
+        var nid=(int)(await ins.ExecuteScalarAsync())!; await ins.DisposeAsync();
+        await using var sel=con.CreateCommand(); sel.CommandText="SELECT d.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM doctors d LEFT JOIN cities ci ON ci.id=d.city_id LEFT JOIN nigams ng ON ng.id=d.nigam_id LEFT JOIN zones z ON z.id=d.zone_id LEFT JOIN wards ww ON ww.id=d.ward_id WHERE d.id=$1";
+        sel.Parameters.Add(new NpgsqlParameter{Value=nid}); await using var rdr=await sel.ExecuteReaderAsync(); var rows=await ReadRows(rdr);
+        return Results.Json(rows.Count>0?(object)rows[0]:new{id=nid},statusCode:201);
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapPut("/api/admin/doctors/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PutAsync($"{backendBase}/api/doctors/{id}",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapPut("/api/admin/doctors/{id:int}", async (int id, HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var bs=await new StreamReader(ctx.Request.Body).ReadToEndAsync(); using var doc=JsonDocument.Parse(bs); var r=doc.RootElement;
+        var nm=r.TryGetProperty("name",out var _n)?_n.GetString()?.Trim():null; var mob=r.TryGetProperty("mobile",out var _m)?_m.GetString()?.Trim():null;
+        var ql=r.TryGetProperty("qualification",out var _q)?_q.GetString()?.Trim():null; var sp=r.TryGetProperty("specialization",out var _s)?_s.GetString()?.Trim():null;
+        var cl=r.TryGetProperty("clinicName",out var _cl)?_cl.GetString()?.Trim():null; var ad=r.TryGetProperty("address",out var _a)?_a.GetString()?.Trim():null;
+        var tm=r.TryGetProperty("timings",out var _t)?_t.GetString()?.Trim():null; bool i24=r.TryGetProperty("is24hr",out var _24)&&_24.ValueKind==JsonValueKind.True;
+        int? ci=r.TryGetProperty("cityId",out var _ci)&&_ci.ValueKind==JsonValueKind.Number?_ci.GetInt32():(int?)null;
+        int? ni=r.TryGetProperty("nigamId",out var _ni)&&_ni.ValueKind==JsonValueKind.Number?_ni.GetInt32():(int?)null;
+        int? zi=r.TryGetProperty("zoneId",out var _zi)&&_zi.ValueKind==JsonValueKind.Number?_zi.GetInt32():(int?)null;
+        int? wi=r.TryGetProperty("wardId",out var _wi)&&_wi.ValueKind==JsonValueKind.Number?_wi.GetInt32():(int?)null;
+        await using var con=await dbSource.OpenConnectionAsync(); await using var upd=con.CreateCommand();
+        upd.CommandText="UPDATE doctors SET name=COALESCE($1,name),qualification=COALESCE($2,qualification),specialization=COALESCE($3,specialization),clinic_name=COALESCE($4,clinic_name),address=COALESCE($5,address),mobile=COALESCE($6,mobile),timings=COALESCE($7,timings),is_24hr=$8,city_id=COALESCE($9,city_id),nigam_id=COALESCE($10,nigam_id),zone_id=COALESCE($11,zone_id),ward_id=COALESCE($12,ward_id),updated_at=NOW() WHERE id=$13 RETURNING id";
+        upd.Parameters.Add(new NpgsqlParameter{Value=(object?)nm??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)ql??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)sp??DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=(object?)cl??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)ad??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)mob??DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=(object?)tm??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=i24});
+        upd.Parameters.Add(new NpgsqlParameter{Value=ci.HasValue?(object)ci.Value:DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=ni.HasValue?(object)ni.Value:DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=zi.HasValue?(object)zi.Value:DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=wi.HasValue?(object)wi.Value:DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=id}); var res=await upd.ExecuteScalarAsync();
+        if(res==null||res is DBNull)return Results.Json(new{error="Doctor not found."},statusCode:404);
+        return Results.Json(new{message="Doctor updated."});
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapDelete("/api/admin/doctors/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var resp = await MakeClient(f, ctx.Request).DeleteAsync($"{backendBase}/api/doctors/{id}");
-        return await SafeGet(resp, "{}");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapDelete("/api/admin/doctors/{id:int}", async (int id) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        await using var con=await dbSource.OpenConnectionAsync(); await using var del=con.CreateCommand();
+        del.CommandText="DELETE FROM doctors WHERE id=$1 RETURNING id"; del.Parameters.Add(new NpgsqlParameter{Value=id});
+        var res=await del.ExecuteScalarAsync(); if(res==null||res is DBNull)return Results.Json(new{error="Doctor not found."},statusCode:404);
+        return Results.Json(new{message="Doctor deleted.",id});
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-
-// ?? Shops proxy (public GET + admin write) ????????????????????????????????????
-// GET /api/shops  � used by citizen search screen (AFP.GET)
-app.MapGet("/api/shops", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var qs   = ctx.Request.QueryString.Value ?? "";
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/shops{qs}");
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Results.Content("[]", "application/json");
-        return await SafeGet(resp, "[]");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapGet("/api/shops", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var cId=ctx.Request.Query["cityId"].FirstOrDefault()??""; var q=ctx.Request.Query["q"].FirstOrDefault()??"";
+        var w=new List<string>{"s.is_active = TRUE"}; var p=new List<NpgsqlParameter>(); int n=1;
+        if(!string.IsNullOrEmpty(cId)&&int.TryParse(cId,out var ci)){w.Add($"s.city_id=${n++}");p.Add(new NpgsqlParameter{Value=ci});}
+        if(!string.IsNullOrEmpty(q)){w.Add($"(s.name ILIKE ${n} OR s.owner_name ILIKE ${n} OR s.speciality ILIKE ${n})");n++;p.Add(new NpgsqlParameter{Value=$"%{q}%"});}
+        var ws="WHERE "+string.Join(" AND ",w); await using var c=await dbSource.OpenConnectionAsync(); await using var cmd=c.CreateCommand();
+        cmd.CommandText=$"SELECT s.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM shops s LEFT JOIN cities ci ON ci.id=s.city_id LEFT JOIN nigams ng ON ng.id=s.nigam_id LEFT JOIN zones z ON z.id=s.zone_id LEFT JOIN wards ww ON ww.id=s.ward_id {ws} ORDER BY s.name LIMIT 100";
+        foreach(var pm in p)cmd.Parameters.Add(pm); await using var rdr=await cmd.ExecuteReaderAsync(); return Results.Json(await ReadRows(rdr));
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-
-// GET /api/admin/shops  � used by ShopMgmt module
-app.MapGet("/api/admin/shops", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var qs   = ctx.Request.QueryString.Value ?? "";
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/shops{qs}");
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Results.Content("[]", "application/json");
-        return await SafeGet(resp, "[]");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapGet("/api/admin/shops", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var cId=ctx.Request.Query["cityId"].FirstOrDefault()??""; var ngId=ctx.Request.Query["nigamId"].FirstOrDefault()??"";
+        var zId=ctx.Request.Query["zoneId"].FirstOrDefault()??""; var wId=ctx.Request.Query["wardId"].FirstOrDefault()??"";
+        var q=ctx.Request.Query["q"].FirstOrDefault()??""; var w=new List<string>{"s.is_active = TRUE"}; var p=new List<NpgsqlParameter>(); int n=1;
+        if(!string.IsNullOrEmpty(cId)&&int.TryParse(cId,out var ci)){w.Add($"s.city_id=${n++}");p.Add(new NpgsqlParameter{Value=ci});}
+        if(!string.IsNullOrEmpty(ngId)&&int.TryParse(ngId,out var ni)){w.Add($"s.nigam_id=${n++}");p.Add(new NpgsqlParameter{Value=ni});}
+        if(!string.IsNullOrEmpty(zId)&&int.TryParse(zId,out var zi)){w.Add($"s.zone_id=${n++}");p.Add(new NpgsqlParameter{Value=zi});}
+        if(!string.IsNullOrEmpty(wId)&&int.TryParse(wId,out var wi)){w.Add($"s.ward_id=${n++}");p.Add(new NpgsqlParameter{Value=wi});}
+        if(!string.IsNullOrEmpty(q)){w.Add($"(s.name ILIKE ${n} OR s.owner_name ILIKE ${n} OR s.speciality ILIKE ${n})");n++;p.Add(new NpgsqlParameter{Value=$"%{q}%"});}
+        var ws="WHERE "+string.Join(" AND ",w); await using var c=await dbSource.OpenConnectionAsync(); await using var cmd=c.CreateCommand();
+        cmd.CommandText=$"SELECT s.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM shops s LEFT JOIN cities ci ON ci.id=s.city_id LEFT JOIN nigams ng ON ng.id=s.nigam_id LEFT JOIN zones z ON z.id=s.zone_id LEFT JOIN wards ww ON ww.id=s.ward_id {ws} ORDER BY s.name LIMIT 200";
+        foreach(var pm in p)cmd.Parameters.Add(pm); await using var rdr=await cmd.ExecuteReaderAsync(); return Results.Json(await ReadRows(rdr));
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapPost("/api/admin/shops", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PostAsync($"{backendBase}/api/shops",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapPost("/api/admin/shops", async (HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var bs=await new StreamReader(ctx.Request.Body).ReadToEndAsync(); using var doc=JsonDocument.Parse(bs); var r=doc.RootElement;
+        var nm=r.TryGetProperty("name",out var _n)?_n.GetString()?.Trim():null; var ow=r.TryGetProperty("ownerName",out var _o)?_o.GetString()?.Trim():null;
+        var mob=r.TryGetProperty("mobile",out var _m)?_m.GetString()?.Trim():null; var ad=r.TryGetProperty("address",out var _a)?_a.GetString()?.Trim():null;
+        var tm=r.TryGetProperty("timings",out var _t)?_t.GetString()?.Trim():null; var sp=r.TryGetProperty("speciality",out var _sp)?_sp.GetString()?.Trim():null;
+        int? ci=r.TryGetProperty("cityId",out var _ci)&&_ci.ValueKind==JsonValueKind.Number?_ci.GetInt32():(int?)null;
+        int? ni=r.TryGetProperty("nigamId",out var _ni)&&_ni.ValueKind==JsonValueKind.Number?_ni.GetInt32():(int?)null;
+        int? zi=r.TryGetProperty("zoneId",out var _zi)&&_zi.ValueKind==JsonValueKind.Number?_zi.GetInt32():(int?)null;
+        int? wi=r.TryGetProperty("wardId",out var _wi)&&_wi.ValueKind==JsonValueKind.Number?_wi.GetInt32():(int?)null;
+        if(string.IsNullOrWhiteSpace(nm))return Results.Json(new{error="name is required."},statusCode:400);
+        await using var con=await dbSource.OpenConnectionAsync(); await using var ins=con.CreateCommand();
+        ins.CommandText="INSERT INTO shops(name,owner_name,address,mobile,timings,speciality,city_id,nigam_id,zone_id,ward_id)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)RETURNING id";
+        ins.Parameters.Add(new NpgsqlParameter{Value=nm}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)ow??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)ad??DBNull.Value});
+        ins.Parameters.Add(new NpgsqlParameter{Value=(object?)mob??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)tm??DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=(object?)sp??DBNull.Value});
+        ins.Parameters.Add(new NpgsqlParameter{Value=ci.HasValue?(object)ci.Value:DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=ni.HasValue?(object)ni.Value:DBNull.Value});
+        ins.Parameters.Add(new NpgsqlParameter{Value=zi.HasValue?(object)zi.Value:DBNull.Value}); ins.Parameters.Add(new NpgsqlParameter{Value=wi.HasValue?(object)wi.Value:DBNull.Value});
+        var nid=(int)(await ins.ExecuteScalarAsync())!; await ins.DisposeAsync();
+        await using var sel=con.CreateCommand(); sel.CommandText="SELECT s.*,ci.name AS city_name,ng.name AS nigam_name,z.name AS zone_name,ww.ward_number FROM shops s LEFT JOIN cities ci ON ci.id=s.city_id LEFT JOIN nigams ng ON ng.id=s.nigam_id LEFT JOIN zones z ON z.id=s.zone_id LEFT JOIN wards ww ON ww.id=s.ward_id WHERE s.id=$1";
+        sel.Parameters.Add(new NpgsqlParameter{Value=nid}); await using var rdr=await sel.ExecuteReaderAsync(); var rows=await ReadRows(rdr);
+        return Results.Json(rows.Count>0?(object)rows[0]:new{id=nid},statusCode:201);
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapPut("/api/admin/shops/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PutAsync($"{backendBase}/api/shops/{id}",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapPut("/api/admin/shops/{id:int}", async (int id, HttpContext ctx) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        var bs=await new StreamReader(ctx.Request.Body).ReadToEndAsync(); using var doc=JsonDocument.Parse(bs); var r=doc.RootElement;
+        var nm=r.TryGetProperty("name",out var _n)?_n.GetString()?.Trim():null; var ow=r.TryGetProperty("ownerName",out var _o)?_o.GetString()?.Trim():null;
+        var mob=r.TryGetProperty("mobile",out var _m)?_m.GetString()?.Trim():null; var ad=r.TryGetProperty("address",out var _a)?_a.GetString()?.Trim():null;
+        var tm=r.TryGetProperty("timings",out var _t)?_t.GetString()?.Trim():null; var sp=r.TryGetProperty("speciality",out var _sp)?_sp.GetString()?.Trim():null;
+        int? ci=r.TryGetProperty("cityId",out var _ci)&&_ci.ValueKind==JsonValueKind.Number?_ci.GetInt32():(int?)null;
+        int? ni=r.TryGetProperty("nigamId",out var _ni)&&_ni.ValueKind==JsonValueKind.Number?_ni.GetInt32():(int?)null;
+        int? zi=r.TryGetProperty("zoneId",out var _zi)&&_zi.ValueKind==JsonValueKind.Number?_zi.GetInt32():(int?)null;
+        int? wi=r.TryGetProperty("wardId",out var _wi)&&_wi.ValueKind==JsonValueKind.Number?_wi.GetInt32():(int?)null;
+        await using var con=await dbSource.OpenConnectionAsync(); await using var upd=con.CreateCommand();
+        upd.CommandText="UPDATE shops SET name=COALESCE($1,name),owner_name=COALESCE($2,owner_name),address=COALESCE($3,address),mobile=COALESCE($4,mobile),timings=COALESCE($5,timings),speciality=COALESCE($6,speciality),city_id=COALESCE($7,city_id),nigam_id=COALESCE($8,nigam_id),zone_id=COALESCE($9,zone_id),ward_id=COALESCE($10,ward_id),updated_at=NOW() WHERE id=$11 RETURNING id";
+        upd.Parameters.Add(new NpgsqlParameter{Value=(object?)nm??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)ow??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)ad??DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=(object?)mob??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)tm??DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=(object?)sp??DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=ci.HasValue?(object)ci.Value:DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=ni.HasValue?(object)ni.Value:DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=zi.HasValue?(object)zi.Value:DBNull.Value}); upd.Parameters.Add(new NpgsqlParameter{Value=wi.HasValue?(object)wi.Value:DBNull.Value});
+        upd.Parameters.Add(new NpgsqlParameter{Value=id}); var res=await upd.ExecuteScalarAsync();
+        if(res==null||res is DBNull)return Results.Json(new{error="Shop not found."},statusCode:404);
+        return Results.Json(new{message="Shop updated."});
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
-app.MapDelete("/api/admin/shops/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var resp = await MakeClient(f, ctx.Request).DeleteAsync($"{backendBase}/api/shops/{id}");
-        return await SafeGet(resp, "{}");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+app.MapDelete("/api/admin/shops/{id:int}", async (int id) => {
+    if (dbSource==null) return Results.Json(new{error="Database not configured."},statusCode:503);
+    try {
+        await using var con=await dbSource.OpenConnectionAsync(); await using var del=con.CreateCommand();
+        del.CommandText="DELETE FROM shops WHERE id=$1 RETURNING id"; del.Parameters.Add(new NpgsqlParameter{Value=id});
+        var res=await del.ExecuteScalarAsync(); if(res==null||res is DBNull)return Results.Json(new{error="Shop not found."},statusCode:404);
+        return Results.Json(new{message="Shop deleted.",id});
+    } catch(Exception ex){return Results.Json(new{error=ex.Message},statusCode:500);}
 });
 
 // ?? Admin stats + pets proxy ??????????????????????????????????????????????????

@@ -1217,8 +1217,10 @@ if (!form || form._initialized) return;
 form._initialized = true;
 Validate.injectErrorContainers("reportPet");
 Validate.attachLive("reportPet");
-form.addEventListener("submit", async function (e) {        if (!Validate.validateForm("reportPet")) return;
-        const addr  = document.getElementById("rp-addr").value.trim();
+form.addEventListener("submit", async function (e) {
+e.preventDefault();
+if (!Validate.validateForm("reportPet")) return;
+const addr  = document.getElementById("rp-addr").value.trim();
         const mob   = document.getElementById("rp-mobile").value.trim();
         const rtype = document.getElementById("rp-type").value;
         const btn   = document.getElementById("rp-btn");
