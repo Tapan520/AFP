@@ -130,6 +130,10 @@ const AFP = (() => {
             const el = document.getElementById(id);
             if (el) delete el._initialized;
         });
+        ["newpet-form", "rp-form"].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) delete el._initialized;
+        });
 
         // 7. Navigate to splash
         go("splash");

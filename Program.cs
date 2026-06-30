@@ -701,152 +701,561 @@ app.MapGet("/api/admin/pets", async (HttpContext ctx, IHttpClientFactory f) =>
     }
 });
 
-// ?? User Management proxy ?????????????????????????????????????????????????????
-app.MapGet("/api/admin/users", async (HttpContext ctx, IHttpClientFactory f) =>
+// ?? User Management - direct PostgreSQL (Node backend has no user-management routes) ??
+// GET  /api/admin/users          - list users filtered by role / geo / search
+// POST /api/admin/users          - create user (password hashed via pgcrypto crypt())
+// PUT  /api/admin/users/{id}     - update user (password optional)
+// DELETE /api/admin/users/{id}   - delete user
+
+app.MapGet("/api/admin/users", async (HttpContext ctx) =>
 {
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
     try
     {
-        var qs   = ctx.Request.QueryString.Value ?? "";
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/admin/users{qs}");
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return Results.Content("[]", "application/json");
-        return await SafeGet(resp, "[]");
+        var role    = ctx.Request.Query["role"].FirstOrDefault()    ?? "";
+        var cityId  = ctx.Request.Query["cityId"].FirstOrDefault()  ?? "";
+        var nigamId = ctx.Request.Query["nigamId"].FirstOrDefault() ?? "";
+        var zoneId  = ctx.Request.Query["zoneId"].FirstOrDefault()  ?? "";
+        var wardId  = ctx.Request.Query["wardId"].FirstOrDefault()  ?? "";
+        var q       = ctx.Request.Query["q"].FirstOrDefault()       ?? "";
+
+        var where = new List<string>();
+        var parms = new List<NpgsqlParameter>();
+        int n     = 1;
+
+        if (!string.IsNullOrEmpty(role))
+            { where.Add($"u.role = ${n++}"); parms.Add(new NpgsqlParameter { Value = role }); }
+        if (!string.IsNullOrEmpty(cityId)  && int.TryParse(cityId,  out var ci))
+            { where.Add($"u.city_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = ci }); }
+        if (!string.IsNullOrEmpty(nigamId) && int.TryParse(nigamId, out var ni))
+            { where.Add($"u.nigam_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = ni }); }
+        if (!string.IsNullOrEmpty(zoneId)  && int.TryParse(zoneId,  out var zi))
+            { where.Add($"u.zone_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = zi }); }
+        if (!string.IsNullOrEmpty(wardId)  && int.TryParse(wardId,  out var wi))
+            { where.Add($"u.ward_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = wi }); }
+        if (!string.IsNullOrEmpty(q))
+        {
+            where.Add($"(u.name ILIKE ${n} OR u.mobile ILIKE ${n} OR u.email ILIKE ${n})");
+            n++;
+            parms.Add(new NpgsqlParameter { Value = $"%{q}%" });
+        }
+
+        var ws = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT u.id, u.name, u.mobile, u.email, u.address, u.role,
+                   u.city_id, u.nigam_id, u.zone_id, u.ward_id,
+                   u.is_active, u.created_at, u.updated_at,
+                   c.name  AS city_name,
+                   ng.name AS nigam_name,
+                   z.name  AS zone_name,
+                   w.ward_number
+            FROM users u
+            LEFT JOIN cities c  ON c.id  = u.city_id
+            LEFT JOIN nigams ng ON ng.id = u.nigam_id
+            LEFT JOIN zones  z  ON z.id  = u.zone_id
+            LEFT JOIN wards  w  ON w.id  = u.ward_id
+            {ws}
+            ORDER BY u.created_at DESC
+            LIMIT 200
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        return Results.Json(await ReadRows(rdr));
     }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
-});
-app.MapPost("/api/admin/users", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PostAsync($"{backendBase}/api/admin/users",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
-});
-app.MapPut("/api/admin/users/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PutAsync($"{backendBase}/api/admin/users/{id}",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
-});
-app.MapDelete("/api/admin/users/{id:int}", async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var resp = await MakeClient(f, ctx.Request).DeleteAsync($"{backendBase}/api/admin/users/{id}");
-        return await SafeGet(resp, "{}");
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
 
-// ?? Reports proxy ?????????????????????????????????????????????????????????????
-// GET  /api/reports              - ward_admin+ fetches reports scoped to their ward
-// POST /api/reports              - authenticated citizen submits a new report
-// PATCH /api/reports/:id/resolve - ward_admin+ marks a report as resolved
-app.MapGet("/api/reports", async (HttpContext ctx, IHttpClientFactory f) =>
+app.MapPost("/api/admin/users", async (HttpContext ctx) =>
 {
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
     try
     {
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/reports");
-        return await SafeGet(resp, "[]");
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var root      = doc.RootElement;
+
+        var name     = root.TryGetProperty("name",     out var _n)  ? _n.GetString()?.Trim()  : null;
+        var mobile   = root.TryGetProperty("mobile",   out var _m)  ? _m.GetString()?.Trim()  : null;
+        var email    = root.TryGetProperty("email",    out var _e)  ? _e.GetString()?.Trim()  : null;
+        var address  = root.TryGetProperty("address",  out var _a)  ? _a.GetString()?.Trim()  : null;
+        var role     = root.TryGetProperty("role",     out var _r)  ? _r.GetString()          : "citizen";
+        var password = root.TryGetProperty("password", out var _pw) ? _pw.GetString()         : null;
+        bool isActive = !root.TryGetProperty("is_active", out var _ia) || _ia.ValueKind != JsonValueKind.False;
+
+        int? cityId  = root.TryGetProperty("cityId",  out var _ci) && _ci.ValueKind == JsonValueKind.Number ? _ci.GetInt32() : (int?)null;
+        int? nigamId = root.TryGetProperty("nigamId", out var _ni) && _ni.ValueKind == JsonValueKind.Number ? _ni.GetInt32() : (int?)null;
+        int? zoneId  = root.TryGetProperty("zoneId",  out var _zi) && _zi.ValueKind == JsonValueKind.Number ? _zi.GetInt32() : (int?)null;
+        int? wardId  = root.TryGetProperty("wardId",  out var _wi) && _wi.ValueKind == JsonValueKind.Number ? _wi.GetInt32() : (int?)null;
+
+        if (string.IsNullOrWhiteSpace(name))     return Results.Json(new { error = "Name is required."     }, statusCode: 400);
+        if (string.IsNullOrWhiteSpace(mobile))   return Results.Json(new { error = "Mobile is required."   }, statusCode: 400);
+        if (string.IsNullOrWhiteSpace(password)) return Results.Json(new { error = "Password is required." }, statusCode: 400);
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+
+        // Check mobile uniqueness
+        await using var chk = conn.CreateCommand();
+        chk.CommandText = "SELECT id FROM users WHERE mobile = $1";
+        chk.Parameters.Add(new NpgsqlParameter { Value = mobile });
+        if (await chk.ExecuteScalarAsync() != null)
+            return Results.Json(new { error = "A user with this mobile number already exists." }, statusCode: 409);
+        await chk.DisposeAsync();
+
+        await using var ins = conn.CreateCommand();
+        ins.CommandText = """
+            INSERT INTO users
+              (name, mobile, email, address, role, password_hash,
+               city_id, nigam_id, zone_id, ward_id, is_active)
+            VALUES
+              ($1, $2, $3, $4, $5, crypt($6, gen_salt('bf', 10)),
+               $7, $8, $9, $10, $11)
+            RETURNING id
+            """;
+        ins.Parameters.Add(new NpgsqlParameter { Value = name });
+        ins.Parameters.Add(new NpgsqlParameter { Value = mobile });
+        ins.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(email)   ? (object)DBNull.Value : email });
+        ins.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(address) ? (object)DBNull.Value : address });
+        ins.Parameters.Add(new NpgsqlParameter { Value = role ?? "citizen" });
+        ins.Parameters.Add(new NpgsqlParameter { Value = password });
+        ins.Parameters.Add(new NpgsqlParameter { Value = cityId.HasValue  ? (object)cityId.Value  : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = nigamId.HasValue ? (object)nigamId.Value : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = zoneId.HasValue  ? (object)zoneId.Value  : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = wardId.HasValue  ? (object)wardId.Value  : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = isActive });
+
+        var newId = (int)(await ins.ExecuteScalarAsync())!;
+        await ins.DisposeAsync();
+
+        await using var sel = conn.CreateCommand();
+        sel.CommandText = """
+            SELECT u.id, u.name, u.mobile, u.email, u.address, u.role,
+                   u.city_id, u.nigam_id, u.zone_id, u.ward_id,
+                   u.is_active, u.created_at,
+                   c.name  AS city_name,
+                   ng.name AS nigam_name,
+                   z.name  AS zone_name,
+                   w.ward_number
+            FROM users u
+            LEFT JOIN cities c  ON c.id  = u.city_id
+            LEFT JOIN nigams ng ON ng.id = u.nigam_id
+            LEFT JOIN zones  z  ON z.id  = u.zone_id
+            LEFT JOIN wards  w  ON w.id  = u.ward_id
+            WHERE u.id = $1
+            """;
+        sel.Parameters.Add(new NpgsqlParameter { Value = newId });
+        await using var rdr = await sel.ExecuteReaderAsync();
+        var rows = await ReadRows(rdr);
+        return Results.Json(rows.Count > 0 ? (object)rows[0] : new { id = newId }, statusCode: 201);
     }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
-});
-app.MapPost("/api/reports", async (HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PostAsync($"{backendBase}/api/reports",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
-});
-app.MapMethods("/api/reports/{id:int}/resolve", new[] { "PATCH" }, async (int id, HttpContext ctx, IHttpClientFactory f) =>
-{
-    try
-    {
-        var json     = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var patchReq = new HttpRequestMessage(new HttpMethod("PATCH"), $"{backendBase}/api/reports/{id}/resolve")
-            { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
-        var resp = await MakeClient(f, ctx.Request).SendAsync(patchReq);
-        return await SafeGet(resp);
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
 
-// Report comments proxy ????????????????????????????????????????????????????????
-// GET  /api/reports/:id/comments       - list all comments for a report
-// POST /api/reports/:id/comments       - add a comment to a report
-// PUT  /api/reports/:id/comments/:cid  - update an existing comment
-app.MapGet("/api/reports/{id:int}/comments", async (int id, HttpContext ctx, IHttpClientFactory f) =>
+app.MapPut("/api/admin/users/{id:int}", async (int id, HttpContext ctx) =>
 {
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
     try
     {
-        var resp = await MakeClient(f, ctx.Request).GetAsync($"{backendBase}/api/reports/{id}/comments");
-        return await SafeGet(resp, "[]");
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var root      = doc.RootElement;
+
+        var name     = root.TryGetProperty("name",     out var _n)  ? _n.GetString()?.Trim()  : null;
+        var mobile   = root.TryGetProperty("mobile",   out var _m)  ? _m.GetString()?.Trim()  : null;
+        var email    = root.TryGetProperty("email",    out var _e)  ? _e.GetString()?.Trim()  : null;
+        var address  = root.TryGetProperty("address",  out var _a)  ? _a.GetString()?.Trim()  : null;
+        var role     = root.TryGetProperty("role",     out var _r)  ? _r.GetString()          : null;
+        var password = root.TryGetProperty("password", out var _pw) ? _pw.GetString()         : null;
+        bool isActive = !root.TryGetProperty("is_active", out var _ia) || _ia.ValueKind != JsonValueKind.False;
+
+        int? cityId  = root.TryGetProperty("cityId",  out var _ci) && _ci.ValueKind == JsonValueKind.Number ? _ci.GetInt32() : (int?)null;
+        int? nigamId = root.TryGetProperty("nigamId", out var _ni) && _ni.ValueKind == JsonValueKind.Number ? _ni.GetInt32() : (int?)null;
+        int? zoneId  = root.TryGetProperty("zoneId",  out var _zi) && _zi.ValueKind == JsonValueKind.Number ? _zi.GetInt32() : (int?)null;
+        int? wardId  = root.TryGetProperty("wardId",  out var _wi) && _wi.ValueKind == JsonValueKind.Number ? _wi.GetInt32() : (int?)null;
+
+        if (string.IsNullOrWhiteSpace(name))   return Results.Json(new { error = "Name is required."   }, statusCode: 400);
+        if (string.IsNullOrWhiteSpace(mobile)) return Results.Json(new { error = "Mobile is required." }, statusCode: 400);
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+
+        await using var chk = conn.CreateCommand();
+        chk.CommandText = "SELECT id FROM users WHERE id = $1";
+        chk.Parameters.Add(new NpgsqlParameter { Value = id });
+        if (await chk.ExecuteScalarAsync() == null)
+            return Results.Json(new { error = "User not found." }, statusCode: 404);
+        await chk.DisposeAsync();
+
+        // Check mobile uniqueness (exclude self)
+        await using var chk2 = conn.CreateCommand();
+        chk2.CommandText = "SELECT id FROM users WHERE mobile = $1 AND id <> $2";
+        chk2.Parameters.Add(new NpgsqlParameter { Value = mobile });
+        chk2.Parameters.Add(new NpgsqlParameter { Value = id });
+        if (await chk2.ExecuteScalarAsync() != null)
+            return Results.Json(new { error = "Another user with this mobile number already exists." }, statusCode: 409);
+        await chk2.DisposeAsync();
+
+        await using var upd = conn.CreateCommand();
+        var updatingPassword = !string.IsNullOrWhiteSpace(password);
+
+        if (updatingPassword)
+        {
+            upd.CommandText = """
+                UPDATE users SET
+                    name = $1, mobile = $2, email = $3, address = $4, role = $5,
+                    password_hash = crypt($6, gen_salt('bf', 10)),
+                    city_id = $7, nigam_id = $8, zone_id = $9, ward_id = $10,
+                    is_active = $11, updated_at = NOW()
+                WHERE id = $12
+                """;
+            upd.Parameters.Add(new NpgsqlParameter { Value = name });
+            upd.Parameters.Add(new NpgsqlParameter { Value = mobile });
+            upd.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(email)   ? (object)DBNull.Value : email });
+            upd.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(address) ? (object)DBNull.Value : address });
+            upd.Parameters.Add(new NpgsqlParameter { Value = role ?? "citizen" });
+            upd.Parameters.Add(new NpgsqlParameter { Value = password });
+            upd.Parameters.Add(new NpgsqlParameter { Value = cityId.HasValue  ? (object)cityId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = nigamId.HasValue ? (object)nigamId.Value : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = zoneId.HasValue  ? (object)zoneId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = wardId.HasValue  ? (object)wardId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = isActive });
+            upd.Parameters.Add(new NpgsqlParameter { Value = id });
+        }
+        else
+        {
+            upd.CommandText = """
+                UPDATE users SET
+                    name = $1, mobile = $2, email = $3, address = $4, role = $5,
+                    city_id = $6, nigam_id = $7, zone_id = $8, ward_id = $9,
+                    is_active = $10, updated_at = NOW()
+                WHERE id = $11
+                """;
+            upd.Parameters.Add(new NpgsqlParameter { Value = name });
+            upd.Parameters.Add(new NpgsqlParameter { Value = mobile });
+            upd.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(email)   ? (object)DBNull.Value : email });
+            upd.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(address) ? (object)DBNull.Value : address });
+            upd.Parameters.Add(new NpgsqlParameter { Value = role ?? "citizen" });
+            upd.Parameters.Add(new NpgsqlParameter { Value = cityId.HasValue  ? (object)cityId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = nigamId.HasValue ? (object)nigamId.Value : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = zoneId.HasValue  ? (object)zoneId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = wardId.HasValue  ? (object)wardId.Value  : DBNull.Value });
+            upd.Parameters.Add(new NpgsqlParameter { Value = isActive });
+            upd.Parameters.Add(new NpgsqlParameter { Value = id });
+        }
+        await upd.ExecuteNonQueryAsync();
+        return Results.Json(new { message = "User updated." });
     }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
-app.MapPost("/api/reports/{id:int}/comments", async (int id, HttpContext ctx, IHttpClientFactory f) =>
+
+app.MapDelete("/api/admin/users/{id:int}", async (int id, HttpContext ctx) =>
 {
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
     try
     {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PostAsync($"{backendBase}/api/reports/{id}/comments",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
+        var reqUid = GetUserId(ctx.Request);
+        if (reqUid == id)
+            return Results.Json(new { error = "You cannot delete your own account." }, statusCode: 400);
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var del  = conn.CreateCommand();
+        del.CommandText = "DELETE FROM users WHERE id = $1 RETURNING id";
+        del.Parameters.Add(new NpgsqlParameter { Value = id });
+        var deleted = await del.ExecuteScalarAsync();
+        if (deleted == null || deleted is DBNull)
+            return Results.Json(new { error = "User not found." }, statusCode: 404);
+        return Results.Json(new { message = "User deleted." });
     }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
-    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
-app.MapPut("/api/reports/{id:int}/comments/{cid:int}", async (int id, int cid, HttpContext ctx, IHttpClientFactory f) =>
+
+// ?? Reports - direct PostgreSQL (Node backend has no reports routes) ????????
+// GET  /api/reports                          - list reports scoped to caller's geo role
+// POST /api/reports                          - citizen submits a new report
+// PATCH /api/reports/{id}/resolve            - mark report resolved
+// GET  /api/reports/{id}/comments            - list comments
+// POST /api/reports/{id}/comments            - add comment
+// PUT  /api/reports/{id}/comments/{cid}      - edit own comment
+
+app.MapGet("/api/reports", async (HttpContext ctx) =>
 {
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
     try
     {
-        var json = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-        var resp = await MakeClient(f, ctx.Request).PutAsync($"{backendBase}/api/reports/{id}/comments/{cid}",
-            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-        return await SafeGet(resp);
+        var uid = GetUserId(ctx.Request);
+
+        // Resolve caller's role + geo scope from DB
+        string? callerRole = null;
+        int? callerCityId = null, callerNigamId = null, callerZoneId = null, callerWardId = null;
+        if (uid != null)
+        {
+            await using var conn0 = await dbSource.OpenConnectionAsync();
+            await using var cmd0  = conn0.CreateCommand();
+            cmd0.CommandText = "SELECT role, city_id, nigam_id, zone_id, ward_id FROM users WHERE id = $1";
+            cmd0.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+            await using var r0 = await cmd0.ExecuteReaderAsync();
+            if (await r0.ReadAsync())
+            {
+                callerRole    = r0.IsDBNull(0) ? null : r0.GetString(0);
+                callerCityId  = r0.IsDBNull(1) ? (int?)null : r0.GetInt32(1);
+                callerNigamId = r0.IsDBNull(2) ? (int?)null : r0.GetInt32(2);
+                callerZoneId  = r0.IsDBNull(3) ? (int?)null : r0.GetInt32(3);
+                callerWardId  = r0.IsDBNull(4) ? (int?)null : r0.GetInt32(4);
+            }
+        }
+
+        var where = new List<string>();
+        var parms = new List<NpgsqlParameter>();
+        int n = 1;
+
+        if (callerRole == "ward_admin" && callerWardId.HasValue)
+            { where.Add($"r.ward_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerWardId.Value }); }
+        else if (callerRole == "zone_admin" && callerZoneId.HasValue)
+            { where.Add($"r.zone_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerZoneId.Value }); }
+        else if (callerRole == "nigam_admin" && callerNigamId.HasValue)
+            { where.Add($"r.nigam_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = callerNigamId.Value }); }
+        else if (callerRole == "city_admin" && callerCityId.HasValue)
+            { where.Add($"r.city_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerCityId.Value }); }
+        // super_admin: no filter — sees everything
+
+        var ws = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT r.*,
+                   u.name  AS reporter_name,
+                   c.name  AS city_name,
+                   ng.name AS nigam_name,
+                   z.name  AS zone_name,
+                   w.ward_number
+            FROM reports r
+            LEFT JOIN users  u  ON u.id  = r.reporter_id
+            LEFT JOIN cities c  ON c.id  = r.city_id
+            LEFT JOIN nigams ng ON ng.id = r.nigam_id
+            LEFT JOIN zones  z  ON z.id  = r.zone_id
+            LEFT JOIN wards  w  ON w.id  = r.ward_id
+            {ws}
+            ORDER BY r.created_at DESC
+            LIMIT 500
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        return Results.Json(await ReadRows(rdr));
     }
-    catch (Exception ex)
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapPost("/api/reports", async (HttpContext ctx) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    var uid = GetUserId(ctx.Request);
+    if (uid == null)
+        return Results.Json(new { error = "Authentication required." }, statusCode: 401);
+    try
     {
-        return Results.Json(new { error = $"Backend unreachable: {ex.Message}" }, statusCode: 502);
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var root      = doc.RootElement;
+
+        var reportType      = root.TryGetProperty("reportType",      out var _rt) ? _rt.GetString() : null;
+        var lastSeenAddress = root.TryGetProperty("lastSeenAddress", out var _la) ? _la.GetString() : null;
+        var reporterMobile  = root.TryGetProperty("reporterMobile",  out var _rm) ? _rm.GetString() : null;
+
+        if (string.IsNullOrWhiteSpace(reportType))
+            return Results.Json(new { error = "reportType is required." }, statusCode: 400);
+
+        // Inherit geo from reporter's user record
+        int? cityId = null, nigamId = null, zoneId = null, wardId = null;
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var chk  = conn.CreateCommand();
+        chk.CommandText = "SELECT city_id, nigam_id, zone_id, ward_id FROM users WHERE id = $1";
+        chk.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+        await using var r0 = await chk.ExecuteReaderAsync();
+        if (await r0.ReadAsync())
+        {
+            cityId  = r0.IsDBNull(0) ? (int?)null : r0.GetInt32(0);
+            nigamId = r0.IsDBNull(1) ? (int?)null : r0.GetInt32(1);
+            zoneId  = r0.IsDBNull(2) ? (int?)null : r0.GetInt32(2);
+            wardId  = r0.IsDBNull(3) ? (int?)null : r0.GetInt32(3);
+        }
+        await r0.DisposeAsync();
+        await chk.DisposeAsync();
+
+        await using var ins = conn.CreateCommand();
+        ins.CommandText = """
+            INSERT INTO reports
+              (reporter_id, reporter_mobile, report_type, last_seen_address,
+               city_id, nigam_id, zone_id, ward_id, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open')
+            RETURNING id
+            """;
+        ins.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(reporterMobile)  ? (object)DBNull.Value : reporterMobile });
+        ins.Parameters.Add(new NpgsqlParameter { Value = reportType });
+        ins.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(lastSeenAddress) ? (object)DBNull.Value : lastSeenAddress });
+        ins.Parameters.Add(new NpgsqlParameter { Value = cityId.HasValue  ? (object)cityId.Value  : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = nigamId.HasValue ? (object)nigamId.Value : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = zoneId.HasValue  ? (object)zoneId.Value  : DBNull.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = wardId.HasValue  ? (object)wardId.Value  : DBNull.Value });
+        var newId = (int)(await ins.ExecuteScalarAsync())!;
+        return Results.Json(new { id = newId, message = "Report submitted." }, statusCode: 201);
     }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapMethods("/api/reports/{id:int}/resolve", new[] { "PATCH" }, async (int id, HttpContext ctx) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    var uid = GetUserId(ctx.Request);
+    if (uid == null)
+        return Results.Json(new { error = "Authentication required." }, statusCode: 401);
+    try
+    {
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var note = doc.RootElement.TryGetProperty("note", out var _n) ? _n.GetString() : null;
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var upd  = conn.CreateCommand();
+        upd.CommandText = """
+            UPDATE reports
+            SET status          = 'resolved',
+                resolution_note = $1,
+                resolved_at     = NOW(),
+                resolved_by     = $2
+            WHERE id = $3
+            RETURNING id
+            """;
+        upd.Parameters.Add(new NpgsqlParameter { Value = string.IsNullOrEmpty(note) ? (object)DBNull.Value : note });
+        upd.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+        upd.Parameters.Add(new NpgsqlParameter { Value = id });
+        var result = await upd.ExecuteScalarAsync();
+        if (result == null || result is DBNull)
+            return Results.Json(new { error = "Report not found." }, statusCode: 404);
+        return Results.Json(new { message = "Report resolved." });
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+// Report comments ─────────────────────────────────────────────────────────────
+
+app.MapGet("/api/reports/{id:int}/comments", async (int id) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT rc.id, rc.report_id, rc.comment, rc.created_at, rc.updated_at,
+                   u.name AS admin_name, u.role AS admin_role
+            FROM report_comments rc
+            LEFT JOIN users u ON u.id = rc.admin_id
+            WHERE rc.report_id = $1
+            ORDER BY rc.created_at ASC
+            """;
+        cmd.Parameters.Add(new NpgsqlParameter { Value = id });
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        return Results.Json(await ReadRows(rdr));
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapPost("/api/reports/{id:int}/comments", async (int id, HttpContext ctx) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    var uid = GetUserId(ctx.Request);
+    if (uid == null)
+        return Results.Json(new { error = "Authentication required." }, statusCode: 401);
+    try
+    {
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var comment   = doc.RootElement.TryGetProperty("comment", out var _c) ? _c.GetString()?.Trim() : null;
+
+        if (string.IsNullOrWhiteSpace(comment))
+            return Results.Json(new { error = "Comment is required." }, statusCode: 400);
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+
+        await using var chk = conn.CreateCommand();
+        chk.CommandText = "SELECT id FROM reports WHERE id = $1";
+        chk.Parameters.Add(new NpgsqlParameter { Value = id });
+        if (await chk.ExecuteScalarAsync() == null)
+            return Results.Json(new { error = "Report not found." }, statusCode: 404);
+        await chk.DisposeAsync();
+
+        await using var ins = conn.CreateCommand();
+        ins.CommandText = "INSERT INTO report_comments (report_id, admin_id, comment) VALUES ($1,$2,$3) RETURNING id";
+        ins.Parameters.Add(new NpgsqlParameter { Value = id });
+        ins.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+        ins.Parameters.Add(new NpgsqlParameter { Value = comment });
+        var newId = (int)(await ins.ExecuteScalarAsync())!;
+        await ins.DisposeAsync();
+
+        await using var sel = conn.CreateCommand();
+        sel.CommandText = """
+            SELECT rc.id, rc.report_id, rc.comment, rc.created_at, rc.updated_at,
+                   u.name AS admin_name, u.role AS admin_role
+            FROM report_comments rc
+            LEFT JOIN users u ON u.id = rc.admin_id
+            WHERE rc.id = $1
+            """;
+        sel.Parameters.Add(new NpgsqlParameter { Value = newId });
+        await using var rdr = await sel.ExecuteReaderAsync();
+        var rows = await ReadRows(rdr);
+        return Results.Json(rows.Count > 0 ? (object)rows[0] : new { id = newId }, statusCode: 201);
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
+app.MapPut("/api/reports/{id:int}/comments/{cid:int}", async (int id, int cid, HttpContext ctx) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    var uid = GetUserId(ctx.Request);
+    if (uid == null)
+        return Results.Json(new { error = "Authentication required." }, statusCode: 401);
+    try
+    {
+        var bodyStr   = await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+        using var doc = JsonDocument.Parse(bodyStr);
+        var comment   = doc.RootElement.TryGetProperty("comment", out var _c) ? _c.GetString()?.Trim() : null;
+
+        if (string.IsNullOrWhiteSpace(comment))
+            return Results.Json(new { error = "Comment is required." }, statusCode: 400);
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var chk  = conn.CreateCommand();
+        chk.CommandText = "SELECT admin_id FROM report_comments WHERE id = $1 AND report_id = $2";
+        chk.Parameters.Add(new NpgsqlParameter { Value = cid });
+        chk.Parameters.Add(new NpgsqlParameter { Value = id });
+        var ownerId = await chk.ExecuteScalarAsync();
+        if (ownerId == null || ownerId is DBNull)
+            return Results.Json(new { error = "Comment not found." }, statusCode: 404);
+        if ((int)ownerId != uid.Value)
+            return Results.Json(new { error = "You can only edit your own comments." }, statusCode: 403);
+        await chk.DisposeAsync();
+
+        await using var upd = conn.CreateCommand();
+        upd.CommandText = "UPDATE report_comments SET comment = $1, updated_at = NOW() WHERE id = $2";
+        upd.Parameters.Add(new NpgsqlParameter { Value = comment });
+        upd.Parameters.Add(new NpgsqlParameter { Value = cid });
+        await upd.ExecuteNonQueryAsync();
+        return Results.Json(new { message = "Comment updated." });
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
 
 // ?? Uploads proxy (pet photos, vaccination certificates) ?????????????????????

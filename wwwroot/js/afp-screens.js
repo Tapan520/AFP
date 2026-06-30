@@ -1088,13 +1088,14 @@ let _newPetPhoto = null;
 let _newPetCert  = null;
 
 function initNewPet() {
-    _newPetPhoto = null;
-    _newPetCert  = null;
-    const form = document.getElementById("newpet-form");
-    if (!form) return;
-    Validate.injectErrorContainers("newPet");
-    Validate.attachLive("newPet");
-    form.addEventListener("submit", async function (e) {
+_newPetPhoto = null;
+_newPetCert  = null;
+const form = document.getElementById("newpet-form");
+if (!form || form._initialized) return;
+form._initialized = true;
+Validate.injectErrorContainers("newPet");
+Validate.attachLive("newPet");
+form.addEventListener("submit", async function (e) {
         e.preventDefault();
         if (!Validate.validateForm("newPet")) return;
         const name   = document.getElementById("np-name").value.trim();
@@ -1208,14 +1209,15 @@ async function initRenew() {
 
 // ?? SCREEN: REPORT PET ????????????????????????????????????????????????????????
 function initReportPet() {
-    const user  = AFP.getUser();
-    const mobEl = document.getElementById("rp-mobile");
-    if (mobEl && user?.mobile) mobEl.value = user.mobile;
-    Validate.injectErrorContainers("reportPet");
-    Validate.attachLive("reportPet");
-    document.getElementById("rp-form")?.addEventListener("submit", async function (e) {
-        e.preventDefault();
-        if (!Validate.validateForm("reportPet")) return;
+const user  = AFP.getUser();
+const mobEl = document.getElementById("rp-mobile");
+if (mobEl && user?.mobile) mobEl.value = user.mobile;
+const form = document.getElementById("rp-form");
+if (!form || form._initialized) return;
+form._initialized = true;
+Validate.injectErrorContainers("reportPet");
+Validate.attachLive("reportPet");
+form.addEventListener("submit", async function (e) {        if (!Validate.validateForm("reportPet")) return;
         const addr  = document.getElementById("rp-addr").value.trim();
         const mob   = document.getElementById("rp-mobile").value.trim();
         const rtype = document.getElementById("rp-type").value;
@@ -1578,10 +1580,19 @@ async function renderAdminTab(tab) {
                 renderAdminTabBar(user);
             }
             const s = _adminStats;
-            const geoLabel = user?.role === "zone_admin"
+            const geoLabel = user?.role === "super_admin"
+                ? `&#x2B50; Super Admin`
+                : user?.role === "city_admin"
+                ? `&#x1F3D9;&#xFE0F; ${escHtml(user?.city_name || "")} &mdash; City Admin`
+                : user?.role === "nigam_admin"
+                ? `&#x1F3DB;&#xFE0F; ${escHtml(user?.nigam_name || "")} &mdash; Nigam Admin`
+                : user?.role === "zone_admin"
                 ? `&#x1F5FA;&#xFE0F; ${escHtml(user?.zone_name || "")} &mdash; ${escHtml(user?.nigam_name || "")}`
                 : `&#x1F3DB;&#xFE0F; ${escHtml(user?.ward_number || "")} &mdash; ${escHtml(user?.nigam_name || "")}`;
-            const panelLabel = user?.role === "zone_admin" ? "Zone dashboard" : "Ward dashboard";
+            const panelLabel = user?.role === "super_admin" ? "System Overview"
+                : user?.role === "city_admin"  ? "City dashboard"
+                : user?.role === "nigam_admin" ? "Nigam dashboard"
+                : user?.role === "zone_admin"  ? "Zone dashboard" : "Ward dashboard";
             body.innerHTML = `
                 <div style="margin-bottom:15px">
                     <div class="cpill">

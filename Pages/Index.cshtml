@@ -656,7 +656,6 @@
             </div>
         </div>
     </div>
-    <div id="afp-toast" class="afp-toast hidden"></div>
 
     <!-- --- QR CODE MODAL ------------------------------------------------- -->
     <div id="qr-modal" class="modal-bg" style="display:none">
@@ -979,9 +978,8 @@
 
 @section Scripts {
 <script>
-    // Populate profile header on screen load
-    const _origGo = AFP.go;
     // Augment AFP.go: screen lifecycle hooks
+    const _origGo = AFP.go;
     const _patchedGo = function(screen) {
         if (screen === 'petProfile') {
             // petProfile manages its own DOM visibility inside loadPetProfile()
@@ -989,9 +987,11 @@
             return;
         }
         _origGo(screen);
-        if (screen === 'renew')        { setTimeout(initRenew,         50); }
-        if (screen === 'newOwner')     { setTimeout(initNewOwner,      50); }
-        if (screen === 'forum')        { setTimeout(() => Forum.loadForum(), 50); }
+        if (screen === 'newPet')        { setTimeout(initNewPet,        50); }
+        if (screen === 'reportPet')     { setTimeout(initReportPet,     50); }
+        if (screen === 'renew')         { setTimeout(initRenew,         50); }
+        if (screen === 'newOwner')      { setTimeout(initNewOwner,      50); }
+        if (screen === 'forum')         { setTimeout(() => Forum.loadForum(), 50); }
         if (screen === 'searchDoctor')  { setTimeout(loadSearchDoctor,  50); }
         if (screen === 'searchShop')    { setTimeout(loadSearchShop,    50); }
         if (screen === 'breedingMatch') { setTimeout(loadBreedingMatch, 50); }
