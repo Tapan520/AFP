@@ -127,7 +127,13 @@
                 <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
             </div>
         </div>
-        <div id="dashboard-body" class="scroll" style="padding-bottom:24px"></div>
+        <div id="dashboard-body" class="scroll" style="padding-bottom:70px"></div>
+        <div class="bnav">
+            <div class="bnav-item active" onclick="bnavGo('home')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+            <div class="bnav-item" onclick="bnavGo('search')"><span class="bnav-icon">&#x1F50D;</span><span class="bnav-lbl">Search</span></div>
+            <div class="bnav-item" onclick="bnavGo('meter')"><span class="bnav-icon">&#x1F4CA;</span><span class="bnav-lbl">Stats</span></div>
+            <div class="bnav-item" onclick="bnavGo('profile')"><span class="bnav-icon">&#x1F464;</span><span class="bnav-lbl">Profile</span></div>
+        </div>
     </div>
 
     <!-- --- SCREEN: SEARCH PET ------------------------------------------- -->
@@ -529,7 +535,13 @@
             </div>
             <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
         </div>
-        <div id="meter-body" class="scroll" style="padding-bottom:24px"></div>
+        <div id="meter-body" class="scroll" style="padding-bottom:70px"></div>
+        <div class="bnav">
+            <div class="bnav-item" onclick="bnavGo('home')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+            <div class="bnav-item" onclick="bnavGo('search')"><span class="bnav-icon">&#x1F50D;</span><span class="bnav-lbl">Search</span></div>
+            <div class="bnav-item active" onclick="bnavGo('meter')"><span class="bnav-icon">&#x1F4CA;</span><span class="bnav-lbl">Stats</span></div>
+            <div class="bnav-item" onclick="bnavGo('profile')"><span class="bnav-icon">&#x1F464;</span><span class="bnav-lbl">Profile</span></div>
+        </div>
     </div>
 
     <!-- --- SCREEN: ADMIN ------------------------------------------------- -->

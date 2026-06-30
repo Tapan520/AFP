@@ -262,15 +262,17 @@ generateNotifications();
                             <div class="fcard-icon" style="background:#FEE2E2">&#x1F501;</div>
                             <div class="fcard-lbl">Transfer pet</div>
                         </div>
+                        <div class="fcard" onclick="AFP.go('petMeter')">
+                            <div class="fcard-icon" style="background:#EBF3FF">&#x1F4CA;</div>
+                            <div class="fcard-lbl">Pet census</div>
+                        </div>
                         ${extraActions}
                     </div>
                 </div>
-            </div>
-            ${bottomNavHTML("home")}`;
+            </div>`;
     } catch (ex) {
         AFP.tst("Error: " + ex.message);
         renderEmpty(body, "&#x26A0;&#xFE0F;", "Failed to load dashboard");
-        body.innerHTML += bottomNavHTML("home");
     }
 }
 
@@ -344,10 +346,9 @@ async function loadPetMeter() {
             <div style="padding:0 18px">
                 <div class="sec-title" style="margin-bottom:13px">By city</div>
                 ${citiesHTML}
-            </div>
-            ${bottomNavHTML("meter")}`;
+            </div>`;
     } catch (ex) {
-        body.innerHTML = `<div class="p-18">${alertBoxHTML("err", "Failed to load pet meter data.")}</div>${bottomNavHTML("meter")}`;
+        body.innerHTML = `<div class="p-18">${alertBoxHTML("err", "Failed to load pet meter data.")}</div>`;
     }
 }
 
