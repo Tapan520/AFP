@@ -213,10 +213,31 @@ if (dbSource != null)
         ALTER TABLE shops ADD COLUMN IF NOT EXISTS nigam_id   INTEGER REFERENCES nigams(id)  ON DELETE SET NULL;
         ALTER TABLE shops ADD COLUMN IF NOT EXISTS ward_id    INTEGER REFERENCES wards(id)   ON DELETE SET NULL;");
     await RunSql("col:reports reporter_mobile+type", @"
-        ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_mobile VARCHAR(15);
-        ALTER TABLE reports ADD COLUMN IF NOT EXISTS report_type     VARCHAR(30);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_mobile   VARCHAR(15);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS report_type       VARCHAR(30);
         ALTER TABLE reports ADD COLUMN IF NOT EXISTS last_seen_address TEXT;
-        ALTER TABLE reports ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';");
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS status            VARCHAR(20) NOT NULL DEFAULT 'open';");
+
+    // ── Ensure geo-lookup tables have all columns the app depends on ──────────
+    // Covers the case where the Node.js backend seeded these tables with a
+    // minimal schema that did not include is_active / state.
+    await RunSql("col:cities state+active", @"
+        ALTER TABLE cities ADD COLUMN IF NOT EXISTS state     VARCHAR(100);
+        ALTER TABLE cities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;");
+    await RunSql("col:nigams is_active", @"
+        ALTER TABLE nigams ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;");
+    await RunSql("col:zones is_active", @"
+        ALTER TABLE zones  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;");
+    await RunSql("col:wards is_active", @"
+        ALTER TABLE wards  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;");
+
+    // ── Ensure discussion / reply / report-comment tables have updated_at ─────
+    // UPDATE ...SET updated_at = NOW() fails if the column is absent.
+    // The Node.js backend may have created these tables without it.
+    await RunSql("col:discussions updated_at", @"
+        ALTER TABLE discussions        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE discussion_replies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE report_comments    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();");
 
     // ── Indexes ───────────────────────────────────────────────────────────────
     await RunSql("indexes", @"
