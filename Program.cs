@@ -186,6 +186,38 @@ if (dbSource != null)
     await RunSql("col:pets breeding",    @"ALTER TABLE pets ADD COLUMN IF NOT EXISTS breeding_opt_in BOOLEAN NOT NULL DEFAULT FALSE;");
     await RunSql("col:reports resolve",  @"ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolution_note TEXT; ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ; ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL;");
 
+    // ── Backfill columns missing from the original Node.js schema ─────────────
+    // These were absent in the old backend's CREATE TABLE statements.
+    // ADD COLUMN IF NOT EXISTS is idempotent and safe to re-run.
+    await RunSql("col:users is_active+updated_at", @"
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active  BOOLEAN     NOT NULL DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS city_id    INTEGER REFERENCES cities(id)  ON DELETE SET NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS nigam_id   INTEGER REFERENCES nigams(id)  ON DELETE SET NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS ward_id    INTEGER REFERENCES wards(id)   ON DELETE SET NULL;");
+    await RunSql("col:pets updated_at", @"
+        ALTER TABLE pets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE pets ADD COLUMN IF NOT EXISTS city_id    INTEGER REFERENCES cities(id)  ON DELETE SET NULL;
+        ALTER TABLE pets ADD COLUMN IF NOT EXISTS nigam_id   INTEGER REFERENCES nigams(id)  ON DELETE SET NULL;
+        ALTER TABLE pets ADD COLUMN IF NOT EXISTS ward_id    INTEGER REFERENCES wards(id)   ON DELETE SET NULL;");
+    await RunSql("col:doctors updated_at+is_active", @"
+        ALTER TABLE doctors ADD COLUMN IF NOT EXISTS is_active  BOOLEAN     NOT NULL DEFAULT TRUE;
+        ALTER TABLE doctors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE doctors ADD COLUMN IF NOT EXISTS city_id    INTEGER REFERENCES cities(id)  ON DELETE SET NULL;
+        ALTER TABLE doctors ADD COLUMN IF NOT EXISTS nigam_id   INTEGER REFERENCES nigams(id)  ON DELETE SET NULL;
+        ALTER TABLE doctors ADD COLUMN IF NOT EXISTS ward_id    INTEGER REFERENCES wards(id)   ON DELETE SET NULL;");
+    await RunSql("col:shops updated_at+is_active", @"
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_active  BOOLEAN     NOT NULL DEFAULT TRUE;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS city_id    INTEGER REFERENCES cities(id)  ON DELETE SET NULL;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS nigam_id   INTEGER REFERENCES nigams(id)  ON DELETE SET NULL;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS ward_id    INTEGER REFERENCES wards(id)   ON DELETE SET NULL;");
+    await RunSql("col:reports reporter_mobile+type", @"
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_mobile VARCHAR(15);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS report_type     VARCHAR(30);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS last_seen_address TEXT;
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';");
+
     // ── Indexes ───────────────────────────────────────────────────────────────
     await RunSql("indexes", @"
         CREATE INDEX IF NOT EXISTS idx_zones_nigam   ON zones(nigam_id);
