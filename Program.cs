@@ -351,9 +351,9 @@ if (dbSource != null)
     await RunSql("seed:super_admin", @"
         INSERT INTO users (name, mobile, email, password_hash, role, is_active) VALUES
           ('Super Admin','9999999999','admin@nagarnigam.gov.in',
-           '$2a$10$.x6gPwSpMYgPrWh8J21p3O42zXdOInqke3I6ZDlvWpFz.obAt7AP6','super_admin',TRUE)
+           crypt('Admin@2024', gen_salt('bf', 10)),'super_admin',TRUE)
         ON CONFLICT (mobile) DO UPDATE
-          SET password_hash = EXCLUDED.password_hash,
+          SET password_hash = crypt('Admin@2024', gen_salt('bf', 10)),
               role          = EXCLUDED.role,
               email         = EXCLUDED.email,
               is_active     = TRUE;");
@@ -1331,6 +1331,40 @@ app.MapGet("/uploads/{**filePath}", async (string? filePath, IHttpClientFactory 
     {
         return Results.NotFound();
     }
+});
+
+// ?? DB users lister - shows all users WITHOUT passwords (developer diagnostic) ??
+app.MapGet("/api/dbusers", async () =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    try
+    {
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT u.id, u.name, u.mobile, u.email, u.role,
+                   u.is_active, u.created_at,
+                   c.name  AS city_name,
+                   ng.name AS nigam_name,
+                   z.name  AS zone_name,
+                   w.ward_number
+            FROM users u
+            LEFT JOIN cities c  ON c.id  = u.city_id
+            LEFT JOIN nigams ng ON ng.id = u.nigam_id
+            LEFT JOIN zones  z  ON z.id  = u.zone_id
+            LEFT JOIN wards  w  ON w.id  = u.ward_id
+            ORDER BY
+              CASE u.role
+                WHEN 'super_admin' THEN 1 WHEN 'city_admin'  THEN 2
+                WHEN 'nigam_admin' THEN 3 WHEN 'zone_admin'  THEN 4
+                WHEN 'ward_admin'  THEN 5 ELSE 6 END,
+              u.created_at
+            """;
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        return Results.Json(await ReadRows(rdr));
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
 
 // ?? DB schema inspector - verifies all required columns exist in each table ??
