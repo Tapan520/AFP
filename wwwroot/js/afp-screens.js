@@ -1548,6 +1548,7 @@ const tabs = [
     { key: "pets",       label: "Pets" },
     ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
     ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
+    ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
     { key: "cities",     label: "Cities" },
     ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
     ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
@@ -1691,6 +1692,8 @@ async function renderAdminTab(tab) {
     } else if (tab === "shops") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await ShopMgmt.loadShopMgmt(body);
+    } else if (tab === "billing") {
+        await renderAdminBilling(body);
     } else if (tab === "analytics") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await renderAnalyticsDashboard(body);
@@ -1698,19 +1701,29 @@ async function renderAdminTab(tab) {
 }
 
 async function renderAdminReports(body) {
-    renderLoading(body);
-    const REPORT_LABELS = {
-        stray:      "&#x1F43E; Stray / Abandoned",
-        lost:       "&#x1F50D; Lost Pet",
-        unlicensed: "&#x1F4CB; Unlicensed Pet",
-        cruelty:    "&#x26A0;&#xFE0F; Animal Cruelty",
-    };
-    try {
-        const reports = await AFP.GET("/api/reports");
-        if (reports.length === 0) {
-            renderEmpty(body, "&#x1F4CB;", "No reports in your ward yet.");
-            return;
-        }
+renderLoading(body);
+const REPORT_LABELS = {
+    stray:      "&#x1F43E; Stray / Abandoned",
+    lost:       "&#x1F50D; Lost Pet",
+    unlicensed: "&#x1F4CB; Unlicensed Pet",
+    cruelty:    "&#x26A0;&#xFE0F; Animal Cruelty",
+};
+try {
+    const reports = await AFP.GET("/api/reports");
+    if (!Array.isArray(reports) || reports.length === 0) {
+        const user = AFP.getUser();
+        const emptyMsg = user?.role === "super_admin"
+            ? "No reports submitted yet."
+            : user?.role === "city_admin"
+            ? "No reports in your city yet."
+            : user?.role === "nigam_admin"
+            ? "No reports in your nigam yet."
+            : user?.role === "zone_admin"
+            ? "No reports in your zone yet."
+            : "No reports in your ward yet.";
+        renderEmpty(body, "&#x1F4CB;", emptyMsg);
+        return;
+    }
 
         // Store for filter toggling without re-fetching
         body._reports = reports;
@@ -1988,6 +2001,296 @@ async function resolveReport(id) {
         AFP.tst("\u26A0\uFE0F Failed: " + ex.message);
         if (btn) { btn.classList.remove("loading"); btn.disabled = false; }
     }
+}
+
+// ?? BILLING / REVENUE REPORT ????????????????????????????????????????????????
+let _lastBillingData = null;
+
+async function renderAdminBilling(body) {
+    renderLoading(body);
+    const user = AFP.getUser();
+    const now  = new Date();
+    const y    = now.getFullYear();
+    const m    = String(now.getMonth() + 1).padStart(2, "0");
+    const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+    const fromD = `${y}-${m}-01`;
+    const toD   = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
+
+    const role = user?.role;
+    const groupByOptions = (role === "super_admin" || role === "city_admin")
+        ? [["ward","By Ward"],["zone","By Zone"],["nigam","By Nigam"],["city","By City"]]
+        : role === "nigam_admin"
+        ? [["ward","By Ward"],["zone","By Zone"]]
+        : [["ward","By Ward"]];
+
+    body.innerHTML = `
+        <div style="font-size:17px;font-weight:700;margin-bottom:13px">&#x1F4B3; Billing &amp; Revenue Report</div>
+        <div class="card" style="margin-bottom:14px">
+            <div class="d-row" style="flex-wrap:wrap;gap:10px">
+                <div class="field" style="margin-bottom:0;flex:1;min-width:120px">
+                    <label class="field-label">From</label>
+                    <input id="billing-from" type="date" class="field-input" value="${fromD}">
+                </div>
+                <div class="field" style="margin-bottom:0;flex:1;min-width:120px">
+                    <label class="field-label">To</label>
+                    <input id="billing-to" type="date" class="field-input" value="${toD}">
+                </div>
+                <div class="field" style="margin-bottom:0;flex:1;min-width:120px">
+                    <label class="field-label">Group by</label>
+                    <select id="billing-groupby" class="field-input">
+                        ${groupByOptions.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+                    </select>
+                </div>
+            </div>
+            <div class="d-row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary btn-small btn-w-auto" style="padding:9px 16px"
+                    onclick="loadBillingReport()">&#x1F50D; Generate</button>
+                <button class="btn btn-ghost btn-small btn-w-auto" style="padding:9px 14px"
+                    onclick="billingSetQuick('month')">This Month</button>
+                <button class="btn btn-ghost btn-small btn-w-auto" style="padding:9px 14px"
+                    onclick="billingSetQuick('quarter')">This Quarter</button>
+                <button class="btn btn-ghost btn-small btn-w-auto" style="padding:9px 14px"
+                    onclick="billingSetQuick('year')">This Year</button>
+            </div>
+        </div>
+        <div id="billing-result"></div>`;
+
+    await loadBillingReport();
+}
+
+function billingSetQuick(period) {
+    const now = new Date();
+    const y   = now.getFullYear();
+    const m   = now.getMonth();
+    let from, to;
+    if (period === "month") {
+        from = new Date(y, m, 1);
+        to   = new Date(y, m + 1, 0);
+    } else if (period === "quarter") {
+        const qs = Math.floor(m / 3) * 3;
+        from = new Date(y, qs, 1);
+        to   = new Date(y, qs + 3, 0);
+    } else {
+        from = new Date(y, 0, 1);
+        to   = new Date(y, 11, 31);
+    }
+    const fmt = d => d.toISOString().split("T")[0];
+    const fEl = document.getElementById("billing-from");
+    const tEl = document.getElementById("billing-to");
+    if (fEl) fEl.value = fmt(from);
+    if (tEl) tEl.value = fmt(to);
+    loadBillingReport();
+}
+
+async function loadBillingReport() {
+    const resultEl = document.getElementById("billing-result");
+    if (!resultEl) return;
+    renderLoading(resultEl);
+    const from    = document.getElementById("billing-from")?.value    || "";
+    const to      = document.getElementById("billing-to")?.value      || "";
+    const groupBy = document.getElementById("billing-groupby")?.value || "ward";
+    try {
+        const data = await AFP.GET(`/api/admin/billing?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&groupBy=${groupBy}`);
+        _lastBillingData = { data, from, to, groupBy };
+        const { rows, summary } = data;
+        if (!rows || rows.length === 0) {
+            renderEmpty(resultEl, "&#x1F4B3;", "No registrations in this period.");
+            return;
+        }
+        const fmtINR   = n => `\u20B9\u00A0${Number(n || 0).toLocaleString("en-IN")}`;
+        const grpLabel = { ward: "Ward", zone: "Zone", nigam: "Nigam", city: "City" }[groupBy] || "Group";
+        const showCity = groupBy !== "city";
+        const rowsHTML = rows.map(r => `
+            <tr style="border-bottom:1px solid var(--bd)">
+                <td style="padding:8px 10px;font-weight:600">${escHtml(r.group_label || "\u2014")}</td>
+                ${showCity ? `<td style="padding:8px 10px;font-size:11px;color:var(--tx2)">${escHtml(r.city_name || "")}</td>` : ""}
+                <td style="padding:8px 10px;text-align:center">${r.total || 0}</td>
+                <td style="padding:8px 10px;text-align:center;color:var(--ok);font-weight:600">${r.approved || 0}</td>
+                <td style="padding:8px 10px;text-align:center;color:var(--wn)">${r.pending || 0}</td>
+                <td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--or)">${fmtINR(r.estimated_revenue)}</td>
+            </tr>`).join("");
+        resultEl.innerHTML = `
+            <div class="sgrid" style="margin-bottom:13px">
+                <div class="scard" style="flex:1">
+                    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Total Pets</div>
+                    <div style="font-size:24px;font-weight:700">${summary.total}</div>
+                </div>
+                <div class="scard" style="flex:1">
+                    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Approved</div>
+                    <div style="font-size:24px;font-weight:700;color:var(--ok)">${summary.approved}</div>
+                </div>
+                <div class="scard" style="flex:1;background:var(--or-p);border:1.5px solid var(--or)">
+                    <div style="font-size:10px;color:var(--or);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Est. Revenue</div>
+                    <div style="font-size:20px;font-weight:700;color:var(--or)">${fmtINR(summary.revenue)}</div>
+                </div>
+            </div>
+            <div style="overflow-x:auto;margin-bottom:12px;border:1px solid var(--bd);border-radius:10px">
+                <table style="width:100%;border-collapse:collapse;font-size:13px">
+                    <thead>
+                        <tr style="background:var(--sf2)">
+                            <th style="text-align:left;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">${grpLabel}</th>
+                            ${showCity ? `<th style="text-align:left;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">City</th>` : ""}
+                            <th style="text-align:center;padding:9px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">Total</th>
+                            <th style="text-align:center;padding:9px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">Approved</th>
+                            <th style="text-align:center;padding:9px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">Pending</th>
+                            <th style="text-align:right;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)">Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHTML}</tbody>
+                    <tfoot>
+                        <tr style="background:var(--or-p);font-weight:700;border-top:2px solid var(--or)">
+                            <td style="padding:9px 10px" colspan="${showCity ? 2 : 1}">TOTAL</td>
+                            <td style="text-align:center;padding:9px 8px">${summary.total}</td>
+                            <td style="text-align:center;padding:9px 8px;color:var(--ok)">${summary.approved}</td>
+                            <td style="text-align:center;padding:9px 8px;color:var(--wn)">${summary.pending}</td>
+                            <td style="text-align:right;padding:9px 10px;color:var(--or)">${fmtINR(summary.revenue)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <button class="btn btn-outline" style="width:auto;padding:10px 20px"
+                onclick="printBillingInvoice()">&#x1F5A8;&#xFE0F; Print / Export Invoice</button>`;
+    } catch (ex) {
+        resultEl.innerHTML = alertBoxHTML("err", "Failed to load billing data: " + ex.message);
+    }
+}
+
+function printBillingInvoice() {
+    if (!_lastBillingData) { AFP.tst("No billing data to print."); return; }
+    const { data, from, to, groupBy } = _lastBillingData;
+    const user      = AFP.getUser();
+    const { rows = [], summary = {} } = data;
+    const e         = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    const fmtINR    = n => `\u20B9\u00A0${Number(n || 0).toLocaleString("en-IN")}`;
+    const fmtDate   = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}) : "\u2014";
+    const issuedOn  = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"long",year:"numeric"});
+    const grpLabel  = { ward:"Ward", zone:"Zone", nigam:"Nigam", city:"City" }[groupBy] || "Group";
+    const showCity  = groupBy !== "city";
+    const invoiceNo = `AFP-BILL-${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-${String(Date.now()).slice(-4)}`;
+
+    const rowsHTML  = rows.map(r => `
+        <tr>
+            <td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;font-weight:600">${e(r.group_label || "\u2014")}</td>
+            ${showCity ? `<td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;color:#666;font-size:11px">${e(r.city_name || "")}</td>` : ""}
+            <td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;text-align:center">${r.total || 0}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;text-align:center;color:#065F46;font-weight:600">${r.approved || 0}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;text-align:center;color:#92400E">${r.pending || 0}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f0ebe0;text-align:right;font-weight:700;color:#E8670A">${fmtINR(r.estimated_revenue)}</td>
+        </tr>`).join("");
+
+    const win = window.open("", "_blank", "width=900,height=700,scrollbars=yes");
+    if (!win) { AFP.tst("\u26A0\uFE0F Please allow pop-ups to print."); return; }
+    win.document.write(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Billing Report \u2013 ${e(from)} to ${e(to)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0ebe0;padding:20px}
+.actions{display:flex;gap:10px;justify-content:center;margin-bottom:16px}
+.bp{padding:10px 26px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;background:#E8670A;color:#fff;border:none}
+.bg{padding:10px 26px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;background:transparent;color:#5A564F;border:2px solid #c5bdb0}
+.inv{width:100%;max-width:800px;margin:0 auto;background:#fff;border:2px solid #D4AF37}
+.hdr{background:linear-gradient(135deg,#1A1814,#3A3228);color:#fff;padding:22px 28px;display:flex;align-items:center;gap:18px}
+.emblem{width:60px;height:60px;border-radius:50%;background:rgba(212,175,55,.15);border:2px solid rgba(212,175,55,.5);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
+.hdr-mid{flex:1}.hdr-gov{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.5);margin-bottom:2px}
+.hdr-title{font-size:18px;font-weight:700;color:#F5D87A;margin-bottom:2px}
+.hdr-sub{font-size:11px;color:rgba(255,255,255,.6)}
+.hdr-right{text-align:right;flex-shrink:0}
+.inv-lbl{font-size:9px;color:rgba(255,255,255,.4);letter-spacing:1px;font-family:monospace;margin-bottom:4px}
+.inv-no{background:#E8670A;color:#fff;padding:4px 12px;border-radius:5px;font-size:11px;font-weight:700;font-family:monospace}
+.band{background:#D4AF37;padding:8px 28px;display:flex;align-items:center;justify-content:center;gap:14px}
+.band-title{font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#1A1814}
+.band-deco{font-size:9px;color:rgba(0,0,0,.35);letter-spacing:3px}
+.body{padding:20px 28px}
+.meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+.meta-box{background:#f7f3ec;border:1px solid #D4AF37;border-radius:7px;padding:10px 14px;min-width:130px;flex:1}
+.meta-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#8B6914;font-weight:600;margin-bottom:3px}
+.meta-val{font-size:13px;font-weight:700;color:#1A1814}
+.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.scard{flex:1;min-width:100px;background:linear-gradient(135deg,#FFF3E8,#fff);border:1.5px solid #D4AF37;border-radius:9px;padding:12px;text-align:center}
+.scard-icon{font-size:20px;margin-bottom:4px}
+.scard-val{font-size:20px;font-weight:700;color:#1A1814}
+.scard-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#8B6914;margin-top:2px}
+.sec{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#8B6914;border-bottom:1px solid #D4AF37;padding-bottom:5px;margin-bottom:11px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead tr{background:#f7f3ec}
+th{text-align:left;padding:8px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#8B6914;font-weight:700;border-bottom:2px solid #D4AF37}
+tfoot tr{background:#FFF3E8;border-top:2px solid #E8670A}
+tfoot td{font-weight:700;padding:9px 10px;color:#1A1814}
+.note{margin-top:14px;padding:10px 14px;background:#f7f3ec;border-radius:7px;border:1px solid #D4AF37;font-size:10px;color:#666;line-height:16px}
+.ftr{background:#1A1814;color:rgba(255,255,255,.4);padding:8px 28px;display:flex;justify-content:space-between;font-size:9px;letter-spacing:.3px}
+@media print{body{background:#fff;padding:0}.actions{display:none!important}.inv{max-width:100%}@page{size:A4;margin:12mm}}
+</style>
+</head><body>
+<div class="actions">
+  <button class="bp" onclick="window.print()">&#x1F5A8;&#xFE0F;&nbsp; Print / Save as PDF</button>
+  <button class="bg" onclick="window.close()">&#x2715; Close</button>
+</div>
+<div class="inv">
+  <div class="hdr">
+    <div class="emblem">&#x1F3DB;&#xFE0F;</div>
+    <div class="hdr-mid">
+      <div class="hdr-gov">Government of India \u2014 Municipal Corporation</div>
+      <div class="hdr-title">Pet Registration Billing Statement</div>
+      <div class="hdr-sub">${e(user?.nigam_name || user?.city_name || "All For Pets \u2014 Municipal Portal")}</div>
+    </div>
+    <div class="hdr-right">
+      <div class="inv-lbl">INVOICE NO.</div>
+      <div class="inv-no">${e(invoiceNo)}</div>
+    </div>
+  </div>
+  <div class="band">
+    <span class="band-deco">&#x25C6; &#x25C6; &#x25C6;</span>
+    <span class="band-title">Revenue &amp; Registration Summary</span>
+    <span class="band-deco">&#x25C6; &#x25C6; &#x25C6;</span>
+  </div>
+  <div class="body">
+    <div class="meta">
+      <div class="meta-box"><div class="meta-lbl">Period From</div><div class="meta-val">${e(fmtDate(from))}</div></div>
+      <div class="meta-box"><div class="meta-lbl">Period To</div><div class="meta-val">${e(fmtDate(to))}</div></div>
+      <div class="meta-box"><div class="meta-lbl">Grouped By</div><div class="meta-val">${e(grpLabel)}</div></div>
+      <div class="meta-box"><div class="meta-lbl">Prepared By</div><div class="meta-val">${e(user?.name || "Admin")} \u2014 ${e((user?.role || "").replace("_"," "))}</div></div>
+      <div class="meta-box"><div class="meta-lbl">Issued On</div><div class="meta-val">${e(issuedOn)}</div></div>
+    </div>
+    <div class="summary">
+      <div class="scard"><div class="scard-icon">&#x1F43E;</div><div class="scard-val">${summary.total || 0}</div><div class="scard-lbl">Total Pets</div></div>
+      <div class="scard"><div class="scard-icon">&#x2705;</div><div class="scard-val">${summary.approved || 0}</div><div class="scard-lbl">Approved</div></div>
+      <div class="scard"><div class="scard-icon">&#x23F3;</div><div class="scard-val">${summary.pending || 0}</div><div class="scard-lbl">Pending</div></div>
+      <div class="scard" style="background:linear-gradient(135deg,#FFF3E8,#fff);border-color:#E8670A">
+        <div class="scard-icon">&#x1F4B0;</div>
+        <div class="scard-val" style="color:#E8670A">${fmtINR(summary.revenue)}</div>
+        <div class="scard-lbl" style="color:#E8670A">Est. Revenue</div>
+      </div>
+    </div>
+    <div class="sec">Registration Breakdown by ${e(grpLabel)}</div>
+    <table>
+      <thead><tr>
+        <th>${e(grpLabel)}</th>
+        ${showCity ? "<th>City</th>" : ""}
+        <th style="text-align:center">Total</th>
+        <th style="text-align:center">Approved</th>
+        <th style="text-align:center">Pending</th>
+        <th style="text-align:right">Est. Revenue</th>
+      </tr></thead>
+      <tbody>${rowsHTML}</tbody>
+      <tfoot><tr>
+        <td colspan="${showCity ? 2 : 1}">TOTAL</td>
+        <td style="text-align:center">${summary.total || 0}</td>
+        <td style="text-align:center;color:#065F46">${summary.approved || 0}</td>
+        <td style="text-align:center;color:#92400E">${summary.pending || 0}</td>
+        <td style="text-align:right;color:#E8670A">${fmtINR(summary.revenue)}</td>
+      </tr></tfoot>
+    </table>
+    <div class="note"><strong style="color:#8B6914">Note:</strong> Estimated revenue = Approved Pets \u00D7 Nigam Registration Fee. Renewal and transfer revenues are not included. Data is scoped to registrations created within the selected date range.</div>
+  </div>
+  <div class="ftr">
+    <span>Issued: ${e(issuedOn)}</span>
+    <span>allforpets.nagarnigam.gov.in</span>
+    <span>Period: ${e(from)} to ${e(to)}</span>
+  </div>
+</div>
+</body></html>`);
+    win.document.close();
 }
 
 async function adminApprove(id) {

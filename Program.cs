@@ -1961,4 +1961,125 @@ app.MapDelete("/api/discussions/{id:int}/replies/{rid:int}", async (int id, int 
     catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
 });
 
+// ?? Billing / Revenue Report — direct PostgreSQL ???????????????????????????????????
+// GET /api/admin/billing
+// Query params: from (date), to (date), groupBy (ward|zone|nigam|city)
+// Role-scoped: each admin sees only their geo scope.
+app.MapGet("/api/admin/billing", async (HttpContext ctx) =>
+{
+    if (dbSource == null)
+        return Results.Json(new { error = "Database not configured." }, statusCode: 503);
+    var uid = GetUserId(ctx.Request);
+    if (uid == null)
+        return Results.Json(new { error = "Authentication required." }, statusCode: 401);
+    try
+    {
+        string? callerRole = null;
+        int? callerCityId = null, callerNigamId = null, callerZoneId = null, callerWardId = null;
+        await using var conn0 = await dbSource.OpenConnectionAsync();
+        await using var cmd0  = conn0.CreateCommand();
+        cmd0.CommandText = "SELECT role, city_id, nigam_id, zone_id, ward_id FROM users WHERE id = $1";
+        cmd0.Parameters.Add(new NpgsqlParameter { Value = uid.Value });
+        await using var r0 = await cmd0.ExecuteReaderAsync();
+        if (await r0.ReadAsync())
+        {
+            callerRole    = r0.IsDBNull(0) ? null : r0.GetString(0);
+            callerCityId  = r0.IsDBNull(1) ? (int?)null : r0.GetInt32(1);
+            callerNigamId = r0.IsDBNull(2) ? (int?)null : r0.GetInt32(2);
+            callerZoneId  = r0.IsDBNull(3) ? (int?)null : r0.GetInt32(3);
+            callerWardId  = r0.IsDBNull(4) ? (int?)null : r0.GetInt32(4);
+        }
+        await r0.DisposeAsync(); await cmd0.DisposeAsync();
+
+        var from    = ctx.Request.Query["from"].FirstOrDefault()    ?? "";
+        var to      = ctx.Request.Query["to"].FirstOrDefault()      ?? "";
+        var groupBy = ctx.Request.Query["groupBy"].FirstOrDefault() ?? "ward";
+
+        var where = new List<string>();
+        var parms = new List<NpgsqlParameter>();
+        int n = 1;
+
+        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var dtFrom))
+            { where.Add($"p.created_at >= ${n++}"); parms.Add(new NpgsqlParameter { Value = dtFrom }); }
+        if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to, out var dtTo))
+            { where.Add($"p.created_at < ${n++}"); parms.Add(new NpgsqlParameter { Value = dtTo.AddDays(1) }); }
+
+        if (callerRole == "ward_admin" && callerWardId.HasValue)
+            { where.Add($"p.ward_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerWardId.Value }); }
+        else if (callerRole == "zone_admin" && callerZoneId.HasValue)
+            { where.Add($"p.zone_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerZoneId.Value }); }
+        else if (callerRole == "nigam_admin" && callerNigamId.HasValue)
+            { where.Add($"p.nigam_id = ${n++}"); parms.Add(new NpgsqlParameter { Value = callerNigamId.Value }); }
+        else if (callerRole == "city_admin" && callerCityId.HasValue)
+            { where.Add($"p.city_id = ${n++}");  parms.Add(new NpgsqlParameter { Value = callerCityId.Value }); }
+        // super_admin: no geo filter
+
+        var ws = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
+
+        string selectCols, groupCols, orderCols, feeSelect;
+        switch (groupBy)
+        {
+            case "city":
+                selectCols = "c.id AS group_id, c.name AS group_label, c.name AS city_name, ''::text AS nigam_name, ''::text AS zone_name, ''::text AS ward_number";
+                groupCols  = "c.id, c.name";
+                orderCols  = "c.name";
+                feeSelect  = ", 200::numeric AS registration_fee, 150::numeric AS renewal_fee, 100::numeric AS transfer_fee, (COUNT(p.id) FILTER (WHERE p.registration_status = 'approved') * 200)::numeric AS estimated_revenue";
+                break;
+            case "nigam":
+                selectCols = "ng.id AS group_id, ng.name AS group_label, c.name AS city_name, ng.name AS nigam_name, ''::text AS zone_name, ''::text AS ward_number";
+                groupCols  = "ng.id, ng.name, c.name, ng.registration_fee, ng.renewal_fee, ng.transfer_fee";
+                orderCols  = "c.name, ng.name";
+                feeSelect  = ", ng.registration_fee, ng.renewal_fee, ng.transfer_fee, (COUNT(p.id) FILTER (WHERE p.registration_status = 'approved') * ng.registration_fee)::numeric AS estimated_revenue";
+                break;
+            case "zone":
+                selectCols = "z.id AS group_id, z.name AS group_label, c.name AS city_name, ng.name AS nigam_name, z.name AS zone_name, ''::text AS ward_number";
+                groupCols  = "z.id, z.name, c.name, ng.name, ng.registration_fee, ng.renewal_fee, ng.transfer_fee";
+                orderCols  = "c.name, ng.name, z.name";
+                feeSelect  = ", ng.registration_fee, ng.renewal_fee, ng.transfer_fee, (COUNT(p.id) FILTER (WHERE p.registration_status = 'approved') * ng.registration_fee)::numeric AS estimated_revenue";
+                break;
+            default: // ward
+                selectCols = "w.id AS group_id, w.ward_number AS group_label, c.name AS city_name, ng.name AS nigam_name, z.name AS zone_name, w.ward_number";
+                groupCols  = "w.id, w.ward_number, c.name, ng.name, z.name, ng.registration_fee, ng.renewal_fee, ng.transfer_fee";
+                orderCols  = "c.name, ng.name, z.name, w.ward_number";
+                feeSelect  = ", ng.registration_fee, ng.renewal_fee, ng.transfer_fee, (COUNT(p.id) FILTER (WHERE p.registration_status = 'approved') * COALESCE(ng.registration_fee, 200))::numeric AS estimated_revenue";
+                break;
+        }
+
+        await using var conn = await dbSource.OpenConnectionAsync();
+        await using var cmd  = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT {selectCols},
+                   COUNT(p.id)::int AS total,
+                   COUNT(p.id) FILTER (WHERE p.registration_status = 'approved')::int AS approved,
+                   COUNT(p.id) FILTER (WHERE p.registration_status = 'pending')::int  AS pending,
+                   COUNT(p.id) FILTER (WHERE p.registration_status = 'rejected')::int AS rejected
+                   {feeSelect}
+            FROM pets p
+            LEFT JOIN wards  w  ON w.id  = p.ward_id
+            LEFT JOIN zones  z  ON z.id  = p.zone_id
+            LEFT JOIN nigams ng ON ng.id = p.nigam_id
+            LEFT JOIN cities c  ON c.id  = p.city_id
+            {ws}
+            GROUP BY {groupCols}
+            ORDER BY {orderCols}
+            """;
+        foreach (var pm in parms) cmd.Parameters.Add(pm);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        var rows = await ReadRows(rdr);
+        await rdr.DisposeAsync(); await cmd.DisposeAsync();
+
+        var totalPets     = rows.Sum(r => r.ContainsKey("total")    ? Convert.ToInt32(r["total"])    : 0);
+        var totalApproved = rows.Sum(r => r.ContainsKey("approved") ? Convert.ToInt32(r["approved"]) : 0);
+        var totalPending  = rows.Sum(r => r.ContainsKey("pending")  ? Convert.ToInt32(r["pending"])  : 0);
+        var totalRevenue  = rows.Sum(r => r.ContainsKey("estimated_revenue") && r["estimated_revenue"] != null
+            ? Convert.ToDecimal(r["estimated_revenue"]) : 0m);
+
+        return Results.Json(new {
+            rows,
+            summary = new { total = totalPets, approved = totalApproved, pending = totalPending, revenue = totalRevenue }
+        });
+    }
+    catch (Exception ex) { return Results.Json(new { error = ex.Message }, statusCode: 500); }
+});
+
 app.Run();
