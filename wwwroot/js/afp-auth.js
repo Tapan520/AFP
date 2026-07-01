@@ -15,7 +15,8 @@ function initLogin() {
         const pw  = document.getElementById("login-pw").value;
         const err = document.getElementById("login-err");
         const btn = document.getElementById("login-btn");
-        err.innerHTML = "";
+        err.innerHTML     = "";
+        err.style.display = "";
         btn.classList.add("loading");
         try {
             const { token, user } = await AFP.POST("/api/auth/login", { identifier: id, password: pw });
@@ -91,7 +92,8 @@ async function initRegister() {
         if (!Validate.validateForm("register")) return;
         const err = document.getElementById("reg-err");
         const btn = document.getElementById("reg-btn");
-        err.innerHTML = "";
+        err.innerHTML     = "";
+        err.style.display = "";
         btn.classList.add("loading");
         try {
             const { token, user } = await AFP.POST("/api/auth/register", {
@@ -126,7 +128,8 @@ function initAdminLogin() {
         const pw  = document.getElementById("al-pw").value;
         const err = document.getElementById("al-err");
         const btn = document.getElementById("al-btn");
-        err.innerHTML = "";
+        err.innerHTML     = "";
+        err.style.display = "";
         btn.classList.add("loading");
         try {
             const { token, user } = await AFP.POST("/api/auth/login", { identifier: id, password: pw });
