@@ -30,8 +30,10 @@ AFP/
 ??? Pages/
 ?   ??? Index.cshtml (+ .cs)          ? All app screens as <div id="screen-*">
 ?   ??? Payment.cshtml (+ .cs)        ? Razorpay create-order / verify endpoints
-?   ??? Privacy.cshtml, Error.cshtml
-?   ??? Shared/_AppLayout.cshtml      ? Loads afp-*.js scripts in strict order
+?   ??? Error.cshtml                  ? Fallback error page
+?   ??? Shared/
+?       ??? _AppLayout.cshtml         ? Loads afp-*.js in strict order (used by Index)
+?       ??? _Layout.cshtml            ? Bootstrap fallback layout (used only by Error)
 ??? wwwroot/
 ?   ??? css/afp.css                   ? Single stylesheet (design tokens as CSS vars)
 ?   ??? js/afp-*.js                   ? 13 modules (see 05-frontend-modules.md)

@@ -17,9 +17,6 @@ railway-backend/
 ?   ??? doctors.js, shops.js     ? legacy; superseded by .NET direct-DB routes
 ?   ??? reports.js               ? legacy; superseded by .NET
 ?   ??? discussions.js           ? forum; still used as fallback by .NET
-??? migrations/*.sql             ? Reference SQL files
-??? migrate-*.js                 ? Ad-hoc migration scripts
-??? e2e-*.js                     ? End-to-end validation scripts
 ??? README.md                    ? Detailed API reference (kept up to date)
 ??? package.json                 ? `npm start` ? node server.js
 ```

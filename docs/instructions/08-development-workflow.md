@@ -56,8 +56,9 @@ POST https://<node-host>/admin/run-migrations
 Header: x-migration-secret: afp-migrate-2026
 ```
 
-Ad-hoc SQL scripts under `railway-backend/migrations/*.sql` are historical
-references — the canonical schema is in `Program.cs` and `server.js`.
+The canonical schema is defined by the idempotent migration blocks in
+`Program.cs` (`RunSql(...)`) and `server.js` (`runMigrations()`). Both are safe
+to re-run against fresh or existing databases.
 
 ## Diagnostics Endpoints (safe to call in prod)
 
