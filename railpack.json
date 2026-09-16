@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "dotnet",
+  "packages": {
+    "dotnet": "8"
+  },
+  "steps": {
+    "install": {
+      "commands": ["dotnet restore AFP.csproj"]
+    },
+    "build": {
+      "commands": [
+        "dotnet publish AFP.csproj -c Release -o out --no-restore"
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "dotnet out/AFP.dll --urls http://0.0.0.0:$PORT"
+  }
+}
