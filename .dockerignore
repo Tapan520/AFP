@@ -1,0 +1,20 @@
+# Keep the .NET web image small + prevent the Node backend from being copied in.
+**/bin
+**/obj
+**/publish
+**/out
+**/.vs
+**/.vscode
+**/.idea
+**/node_modules
+railway-backend/
+AFP.Tests/
+AFP.sln
+capacitor/
+capacitor.config.json
+app-run.log
+app-run.err.log
+*.md
+.git
+.gitignore
+.editorconfig
