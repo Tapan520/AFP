@@ -1,55 +1,60 @@
-// ?????????????????????????????????????????????????????????????????????????????
-// config/env.js � Environment loader + validator.
+// ─────────────────────────────────────────────────────────────────────────────
+// config/env.js — Environment loader + validator.
 //
-// Loads variables in this order:
-//   1. .env.<NODE_ENV>   (e.g. .env.development or .env.production)
-//   2. .env              (fallback / overrides)
+// Loading order (later files DO NOT overwrite already-set vars):
+//   1. Vars already present in process.env (Railway / host injects these).
+//   2. .env.<NODE_ENV>   (e.g. .env.development, .env.production)
+//   3. .env              (final fallback)
 //
-// Then runs `dotenv-safe` against `.env.example` to guarantee every REQUIRED
-// variable is present. If any are missing, the process exits with a clear
-// message *before* the server ever starts listening.
-//
-// Additional runtime guards (that dotenv-safe alone can't express):
-//   � In production, JWT_SECRET must be ? 32 chars and not equal the dev value.
-//   � In production, MIGRATION_SECRET must be set and not equal the dev value.
+// Validation is INTENTIONALLY minimal — only truly required keys are checked.
+// Optional cloud-provider keys (S3 / Azure / Cloudinary / backups) are only
+// required when the matching STORAGE_PROVIDER is selected. This keeps single-
+// provider deploys (e.g. Cloudinary-only) from crashing on missing S3 vars.
 //
 // Require this module BEFORE anything that reads process.env.
-// ?????????????????????????????????????????????????????????????????????????????
-const path      = require("path");
-const fs        = require("fs");
-const dotenv    = require("dotenv");
-const dotenvSafe = require("dotenv-safe");
+// ─────────────────────────────────────────────────────────────────────────────
+const path   = require("path");
+const fs     = require("fs");
+const dotenv = require("dotenv");
 
-const ROOT       = path.resolve(__dirname, "..");
-const NODE_ENV   = process.env.NODE_ENV || "development";
-const envFile    = path.join(ROOT, `.env.${NODE_ENV}`);
-const fallback   = path.join(ROOT, ".env");
-const example    = path.join(ROOT, ".env.example");
+const ROOT     = path.resolve(__dirname, "..");
+const NODE_ENV = process.env.NODE_ENV || "development";
+const envFile  = path.join(ROOT, `.env.${NODE_ENV}`);
+const fallback = path.join(ROOT, ".env");
 
-// Load environment-specific file first (does not overwrite existing vars).
-if (fs.existsSync(envFile)) {
-  dotenv.config({ path: envFile });
+if (fs.existsSync(envFile))  dotenv.config({ path: envFile });
+if (fs.existsSync(fallback)) dotenv.config({ path: fallback });
+
+// ── Required (regardless of environment) ────────────────────────────────────
+const REQUIRED_ALWAYS = ["JWT_SECRET"];
+
+function hasDb() {
+  return !!(process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_HOST);
 }
-// Load .env last as a fallback (also does not overwrite).
-if (fs.existsSync(fallback)) {
-  dotenv.config({ path: fallback });
+
+function providerRequirements() {
+  const p = (process.env.STORAGE_PROVIDER || "local").toLowerCase();
+  switch (p) {
+    case "s3":         return ["AWS_REGION", "S3_BUCKET"];
+    case "azure":      return ["AZURE_STORAGE_CONNECTION_STRING", "AZURE_BLOB_CONTAINER"];
+    case "cloudinary": return ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
+    default:           return []; // local
+  }
 }
 
-// Validate that every variable listed in .env.example is present.
-try {
-  dotenvSafe.config({
-    example,
-    allowEmptyValues: true, // presence is enough; specific vars are checked below
-    path:             fs.existsSync(envFile) ? envFile : fallback,
-  });
-} catch (err) {
-  console.error("\n? Environment validation failed:");
-  console.error(err.message || err);
-  console.error(`\nCreate/update your .env.${NODE_ENV} file using .env.example as a reference.\n`);
+const missing = [];
+for (const k of REQUIRED_ALWAYS) if (!process.env[k]) missing.push(k);
+for (const k of providerRequirements()) if (!process.env[k]) missing.push(k);
+if (!hasDb()) missing.push("DATABASE_URL (or MYSQL_URL / MYSQL_HOST+MYSQL_USER+MYSQL_PASSWORD+MYSQL_DATABASE)");
+
+if (missing.length) {
+  console.error("\n❌ Environment validation failed. Missing required variables:");
+  for (const k of missing) console.error("  • " + k);
+  console.error(`\nSet them in the Railway service Variables tab (or in .env.${NODE_ENV} locally).\n`);
   process.exit(1);
 }
 
-// Production-only extra checks.
+// ── Production-only extra guards ────────────────────────────────────────────
 if (NODE_ENV === "production") {
   const DEV_SECRETS = new Set([
     "afp_local_dev_secret_key_change_in_production_32chars",
@@ -58,29 +63,24 @@ if (NODE_ENV === "production") {
     "change_me_for_run_migrations_endpoint",
   ]);
   const errs = [];
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  if (process.env.JWT_SECRET.length < 32) {
     errs.push("JWT_SECRET must be at least 32 characters in production.");
   }
   if (DEV_SECRETS.has(process.env.JWT_SECRET)) {
-    errs.push("JWT_SECRET is still the dev default � rotate it before deploying.");
+    errs.push("JWT_SECRET is still the dev default — rotate it before deploying.");
   }
-  if (!process.env.MIGRATION_SECRET) {
-    errs.push("MIGRATION_SECRET must be set in production.");
-  }
-  if (DEV_SECRETS.has(process.env.MIGRATION_SECRET)) {
-    errs.push("MIGRATION_SECRET is still the dev default � rotate it before deploying.");
-  }
-  if (!process.env.DATABASE_URL && !process.env.MYSQL_HOST) {
-    errs.push("Either DATABASE_URL or MYSQL_HOST must be set in production.");
+  if (process.env.MIGRATION_SECRET && DEV_SECRETS.has(process.env.MIGRATION_SECRET)) {
+    errs.push("MIGRATION_SECRET is still the dev default — rotate it before deploying.");
   }
   if (errs.length) {
-    console.error("\n? Production environment checks failed:");
-    for (const e of errs) console.error("  � " + e);
+    console.error("\n❌ Production environment checks failed:");
+    for (const e of errs) console.error("  • " + e);
     console.error("");
     process.exit(1);
   }
 }
 
-console.log(`? Environment loaded (${NODE_ENV})`);
+console.log(`✔ Environment loaded (${NODE_ENV})`);
+console.log(`✔ Storage provider: ${(process.env.STORAGE_PROVIDER || "local").toLowerCase()}`);
 
 module.exports = { NODE_ENV };
