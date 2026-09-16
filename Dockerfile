@@ -51,9 +51,18 @@ COPY <<'EOF' /app/start.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Node API on internal port 3000 ───────────────────────────────────────────
-export NODE_PORT="${NODE_PORT:-3000}"
-export PORT_NODE="$NODE_PORT"    # some scripts read PORT_NODE
+# ── Node API on an INTERNAL port (must not collide with Railway's $PORT) ─────
+# Railway assigns $PORT (usually 8080; here it's 3000 because the domain is
+# mapped to 3000). Kestrel takes that public port; Node needs its own.
+# NODE_PORT defaults to 8081 to guarantee no collision. If you set NODE_PORT
+# in the Variables tab, make sure it is NOT equal to Railway's $PORT.
+DEFAULT_NODE_PORT=8081
+export NODE_PORT="${NODE_PORT:-$DEFAULT_NODE_PORT}"
+if [ "$NODE_PORT" = "${PORT:-8080}" ]; then
+  echo "⚠ NODE_PORT ($NODE_PORT) equals PORT — auto-shifting to 8081"
+  export NODE_PORT=8081
+fi
+
 (
   cd /app/api
   PORT="$NODE_PORT" node server.js
