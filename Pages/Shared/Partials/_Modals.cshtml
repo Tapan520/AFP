@@ -1,0 +1,519 @@
+@* All bottom-sheet / centred modal dialogs used across the app + the global toast. *@
+
+<!-- --- FORUM: NEW / EDIT THREAD MODAL ---------------------------------- -->
+<div id="forum-thread-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div id="forum-thread-modal-title" style="font-size:16px;font-weight:700"></div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="Forum.closeThreadModal()">&times;</button>
+        </div>
+        <div id="forum-thread-modal-err" style="margin-bottom:4px"></div>
+        <div id="forum-thread-modal-body"
+             class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+        <div class="d-row" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="Forum.closeThreadModal()">Cancel</button>
+            <button id="forum-thread-modal-save-btn" class="btn btn-primary"
+                onclick="Forum.saveThread()">
+                &#x2714;&#xFE0F; Post Discussion
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- FORUM: CONFIRM DELETE MODAL -------------------------------------- -->
+<div id="forum-confirm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center">
+        <div class="modal-handle"></div>
+        <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px">Confirm Delete</div>
+        <div id="forum-confirm-msg"
+             style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+        <div class="d-row">
+            <button class="btn btn-ghost" onclick="Forum.closeConfirmModal()">Cancel</button>
+            <button id="forum-confirm-del-btn" class="btn btn-danger"
+                onclick="Forum.executeConfirm()">
+                &#x1F5D1;&#xFE0F; Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- GLOBAL TOAST -------------------------------------------------- -->
+<div id="afp-toast" class="afp-toast hidden"></div>
+
+<!-- --- ADOPTION INTEREST MODAL -------------------------------------- -->
+<div id="adoption-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div id="adoption-modal-name" style="font-size:16px;font-weight:700"></div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer"
+                onclick="closeAdoptionModal()">&times;</button>
+        </div>
+        <div class="card"><div id="adoption-modal-details"></div></div>
+        <div style="background:var(--ok-p);border-radius:10px;padding:11px 13px;margin-top:12px;
+                    font-size:12px;color:#065F46;line-height:18px">
+            &#x2139;&#xFE0F; Your contact info will be shared with the pet owner to arrange a meeting.
+        </div>
+        <div class="d-row mt-8">
+            <button id="adoption-interest-btn" class="btn btn-primary">&#x1F43E; Send Interest</button>
+            <button class="btn btn-ghost" onclick="closeAdoptionModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- ADD EVENT MODAL ----------------------------------------------- -->
+<div id="event-add-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:16px;font-weight:700">&#x1F4C5; New Event</div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer"
+                onclick="closeAddEventModal()">&times;</button>
+        </div>
+        <div class="field">
+            <label class="field-label">Event Type</label>
+            <select id="ev-type" class="field-input">
+                <option value="vaccination">&#x1F489; Vaccination Camp</option>
+                <option value="adoption">&#x1F43E; Adoption Drive</option>
+                <option value="meetup">&#x1F415; Meetup</option>
+                <option value="awareness">&#x1F4E2; Awareness Camp</option>
+            </select>
+        </div>
+        <div class="field"><label class="field-label">Title *</label>
+            <input id="ev-title" class="field-input" placeholder="Event title" /></div>
+        <div class="field"><label class="field-label">Date *</label>
+            <input id="ev-date" class="field-input" type="date" /></div>
+        <div class="field"><label class="field-label">Location *</label>
+            <input id="ev-location" class="field-input" placeholder="Venue / address" /></div>
+        <div class="field"><label class="field-label">Description</label>
+            <textarea id="ev-desc" class="field-input" rows="3"
+                placeholder="Describe the event..."></textarea></div>
+        <div class="d-row mt-8">
+            <button class="btn btn-ghost" onclick="closeAddEventModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveNewEvent()">&#x2714;&#xFE0F; Create Event</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- QR CODE MODAL ------------------------------------------------- -->
+<div id="qr-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center">
+        <div class="modal-handle"></div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">&#x1F4F1; Pet QR Code</div>
+        <div style="font-size:12px;color:var(--tx2);margin-bottom:18px">Scan to identify your pet</div>
+        <div class="qr-wrap"><div id="qr-grid"></div></div>
+        <div id="qr-pet-id" style="font-size:11px;font-family:monospace;color:var(--tx3);margin-bottom:2px"></div>
+        <div id="qr-pet-name" style="font-size:14px;font-weight:700;margin-bottom:1px"></div>
+        <div id="qr-pet-sub" style="font-size:12px;color:var(--tx2);margin-bottom:16px"></div>
+        <div style="background:var(--sf2);border-radius:10px;padding:12px;margin-bottom:16px;text-align:left">
+            <div id="qr-details"></div>
+        </div>
+        <div class="gap-8">
+            <button class="btn btn-primary" onclick="AFP.tst('&#x1F4F1; Sharing QR…');closeQRModal()">&#x1F4F1; Share QR Code</button>
+            <button class="btn btn-ghost" onclick="closeQRModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- DOCTOR DETAIL MODAL ------------------------------------------- -->
+<div id="doc-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+            <div style="width:58px;height:58px;border-radius:15px;background:var(--bl-p);display:flex;align-items:center;justify-content:center;font-size:26px" id="docmodal-avatar">&#x1F468;&#x200D;&#x2695;&#xFE0F;</div>
+            <div>
+                <div id="docmodal-name" style="font-size:17px;font-weight:700"></div>
+                <div id="docmodal-qual" style="font-size:13px;color:var(--tx2)"></div>
+                <span class="badge badge-ok">Available today</span>
+            </div>
+        </div>
+        <div class="card"><div id="docmodal-details"></div></div>
+        <div class="d-row mt-8">
+            <button id="docmodal-call" class="btn btn-primary">&#x1F4DE; Call</button>
+            <button class="btn btn-ghost" onclick="AFP.tst('&#x1F5FA;&#xFE0F; Opening maps…');closeDoctorModal()">&#x1F5FA;&#xFE0F; Directions</button>
+        </div>
+        <button class="btn btn-ghost mt-8" onclick="closeDoctorModal()">Close</button>
+    </div>
+</div>
+
+<!-- --- SHOP DETAIL MODAL --------------------------------------------- -->
+<div id="shop-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+            <div style="width:58px;height:58px;border-radius:15px;background:#F3E8FF;display:flex;align-items:center;justify-content:center;font-size:28px">&#x1F6D2;</div>
+            <div>
+                <div id="shopmodal-name" style="font-size:17px;font-weight:700"></div>
+                <div id="shopmodal-owner" style="font-size:13px;color:var(--tx2)"></div>
+                <span class="badge badge-ok">Open</span>
+            </div>
+        </div>
+        <div class="card"><div id="shopmodal-details"></div></div>
+        <div class="d-row mt-8">
+            <button id="shopmodal-call" class="btn btn-primary">&#x1F4DE; Call</button>
+            <button class="btn btn-ghost" onclick="AFP.tst('&#x1F5FA;&#xFE0F; Opening maps…');closeShopModal()">&#x1F5FA;&#xFE0F; Directions</button>
+        </div>
+        <button class="btn btn-ghost mt-8" onclick="closeShopModal()">Close</button>
+    </div>
+</div>
+
+<!-- --- GEO MANAGER MODAL --------------------------------------------- -->
+<div id="geo-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div id="geomodal-title" style="font-size:16px;font-weight:700;margin-bottom:16px"></div>
+        <div id="geomodal-err"></div>
+        <div id="geomodal-fields"></div>
+        <div class="d-row" style="margin-top:4px">
+            <button class="btn btn-ghost" onclick="closeGeoModal()">Cancel</button>
+            <button id="geomodal-save-btn" class="btn btn-primary" onclick="geoModalSave()">Save &#x2192;</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- USER ADD / EDIT MODAL ---------------------------------------- -->
+<div id="um-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div id="um-modal-title" style="font-size:16px;font-weight:700"></div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="UserMgmt.closeUserModal()">&times;</button>
+        </div>
+        <div id="um-modal-err" style="margin-bottom:4px"></div>
+        <div id="um-modal-body"></div>
+        <div class="d-row" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="UserMgmt.closeUserModal()">Cancel</button>
+            <button id="um-modal-save-btn" class="btn btn-primary" onclick="UserMgmt.saveUser()">
+                &#x2714;&#xFE0F; Save User
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- USER DELETE CONFIRM MODAL ------------------------------------ -->
+<div id="um-confirm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center">
+        <div class="modal-handle"></div>
+        <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete User?</div>
+        <div id="um-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+        <div class="d-row">
+            <button class="btn btn-ghost" onclick="UserMgmt.closeConfirmModal()">Cancel</button>
+            <button id="um-confirm-del-btn" class="btn btn-danger" onclick="UserMgmt.executeDelete()">
+                &#x1F5D1;&#xFE0F; Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- GLOBAL SEARCH MODAL (admin) --------------------------------- -->
+<div id="gs-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:16px;font-weight:700">&#x1F50D; Global Search</div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="closeGlobalSearch()">&times;</button>
+        </div>
+        <div class="search-wrap" style="margin-bottom:14px">
+            <span class="search-icon">&#x1F50D;</span>
+            <input id="gs-input" class="field-input" style="padding-left:34px"
+                placeholder="Search users, pets, doctors and shops…"
+                oninput="globalSearchOnInput(this.value)" />
+        </div>
+        <div id="gs-results" class="scroll" style="max-height:60vh;overflow-y:auto;padding-right:4px"></div>
+    </div>
+</div>
+
+<!-- --- STAFF / CITIZEN PROFILE MODAL ------------------------------- -->
+<div id="sp-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:16px;font-weight:700">&#x1F464; My Profile</div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="closeStaffProfile()">&times;</button>
+        </div>
+        <div id="sp-info"
+             style="padding:10px 12px;background:var(--sf2);border-radius:9px;font-size:12px;color:var(--tx2);margin-bottom:14px"></div>
+        <div id="sp-err" style="margin-bottom:4px"></div>
+        <div class="field">
+            <label class="field-label">Full name *</label>
+            <input id="sp-name" class="field-input" placeholder="Your name" />
+        </div>
+        <div class="d-row">
+            <div class="field" style="margin-bottom:0">
+                <label class="field-label">Mobile *</label>
+                <input id="sp-mobile" class="field-input" type="tel" maxlength="10" placeholder="10-digit mobile" />
+            </div>
+            <div class="field" style="margin-bottom:0">
+                <label class="field-label">Email</label>
+                <input id="sp-email" class="field-input" type="email" placeholder="email@example.com" />
+            </div>
+        </div>
+        <div style="height:13px"></div>
+        <div class="field">
+            <label class="field-label">Address</label>
+            <input id="sp-address" class="field-input" placeholder="House, Street, Area" />
+        </div>
+        <div style="border-top:1px dashed var(--bd);margin:10px 0 12px"></div>
+        <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+            Change password (optional)
+        </div>
+        <div class="field">
+            <label class="field-label">Current password</label>
+            <input id="sp-cur-pw" class="field-input" type="password" placeholder="Leave blank to keep current" autocomplete="current-password" />
+        </div>
+        <div class="field">
+            <label class="field-label">New password</label>
+            <input id="sp-new-pw" class="field-input" type="password" placeholder="Min 8 chars, 1 letter + 1 digit" autocomplete="new-password" />
+        </div>
+        <div class="d-row" style="margin-top:14px">
+            <button class="btn btn-ghost" onclick="closeStaffProfile()">Cancel</button>
+            <button id="sp-save-btn" class="btn btn-primary" onclick="saveStaffProfile()">&#x2714;&#xFE0F; Save Profile</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- USER RESET PASSWORD MODAL (super_admin only) ---------------- -->
+<div id="um-reset-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:16px;font-weight:700">&#x1F511; Reset Password</div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="UserMgmt.closeResetPasswordModal()">&times;</button>
+        </div>
+        <div class="alert-box alert-info" style="margin-bottom:12px">
+            <span>&#x2139;&#xFE0F;</span>
+            <p style="font-size:12px">Set a new password for the user below. Share it securely; the user should change it after logging in.</p>
+        </div>
+        <div style="font-size:13px;color:var(--tx2);margin-bottom:12px">
+            <strong>User:</strong> <span id="um-reset-user"></span>
+        </div>
+        <div id="um-reset-err" style="margin-bottom:4px"></div>
+        <div class="field">
+            <label class="field-label">New password *</label>
+            <input id="um-reset-pw" class="field-input" type="password"
+                placeholder="Min 6 characters" autocomplete="new-password" />
+        </div>
+        <div class="field">
+            <label class="field-label">Confirm new password *</label>
+            <input id="um-reset-cpw" class="field-input" type="password"
+                placeholder="Re-enter password" autocomplete="new-password" />
+        </div>
+        <div class="d-row" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="UserMgmt.closeResetPasswordModal()">Cancel</button>
+            <button id="um-reset-save-btn" class="btn btn-primary" onclick="UserMgmt.saveResetPassword()">
+                &#x1F511; Reset Password
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- PAYMENT MODAL ------------------------------------------------ -->
+<div id="pay-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;gap:11px;margin-bottom:18px">
+            <div style="width:46px;height:46px;border-radius:13px;background:var(--ok-p);
+                        display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+                &#x1F4B3;
+            </div>
+            <div>
+                <div style="font-size:16px;font-weight:700">Secure Payment</div>
+                <div style="font-size:12px;color:var(--tx2)">Powered by Razorpay</div>
+            </div>
+        </div>
+        <div class="pay-summary-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                    <div id="pay-purpose-label" style="font-size:13px;font-weight:600"></div>
+                    <div id="pay-pet-name" style="font-size:12px;color:var(--tx2);margin-top:2px"></div>
+                </div>
+                <div id="pay-amount" style="font-size:24px;font-weight:700;color:var(--or)"></div>
+            </div>
+        </div>
+        <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;
+                    letter-spacing:.5px;margin-bottom:8px">Pay via</div>
+        <div class="chips" style="margin-bottom:16px">
+            <button class="chip pay-method-chip active" data-method="upi">&#x1F4F1; UPI</button>
+            <button class="chip pay-method-chip" data-method="card">&#x1F4B3; Card</button>
+            <button class="chip pay-method-chip" data-method="netbanking">&#x1F3E6; Net Banking</button>
+            <button class="chip pay-method-chip" data-method="wallet">&#x1F4B0; Wallet</button>
+        </div>
+        <div class="pay-benefits">
+            <div class="pay-benefit-row">&#x2705; Official municipal pet licence</div>
+            <div class="pay-benefit-row">&#x2705; 1-year validity certificate (PDF)</div>
+            <div class="pay-benefit-row">&#x2705; Unique Pet ID &amp; QR code</div>
+            <div class="pay-benefit-row">&#x1F512; 256-bit encrypted &amp; secure</div>
+        </div>
+        <div id="pay-err" style="margin-bottom:4px"></div>
+        <div id="pay-processing"
+             style="display:none;align-items:center;gap:9px;padding:11px;
+                    background:var(--ok-p);border-radius:8px;margin-bottom:12px">
+            <span class="spinner mini-spinner"></span>
+            <span style="font-size:13px;color:#065F46;font-weight:600">Verifying payment… please wait</span>
+        </div>
+        <button id="pay-btn" class="btn btn-primary" onclick="Payment.startPayment()">
+            &#x1F512; Pay Now
+        </button>
+        <button class="btn btn-ghost mt-8" onclick="Payment.closePaymentModal()">Cancel</button>
+        <div style="text-align:center;font-size:11px;color:var(--tx3);margin-top:12px">
+            &#x1F512; Payments processed securely by Razorpay. We never store card details.
+        </div>
+    </div>
+</div>
+
+<!-- --- DOCTOR ADD / EDIT MODAL ------------------------------------ -->
+<div id="dm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div id="dm-modal-title" style="font-size:16px;font-weight:700"></div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="DoctorMgmt.closeModal()">&times;</button>
+        </div>
+        <div id="dm-modal-err" style="margin-bottom:4px"></div>
+        <div id="dm-modal-body" class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+        <div class="d-row" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="DoctorMgmt.closeModal()">Cancel</button>
+            <button id="dm-modal-save-btn" class="btn btn-primary" onclick="DoctorMgmt.saveEntry()">
+                &#x2714;&#xFE0F; Save Doctor
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- DOCTOR DELETE CONFIRM MODAL --------------------------------- -->
+<div id="dm-confirm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center">
+        <div class="modal-handle"></div>
+        <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete Doctor?</div>
+        <div id="dm-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+        <div class="d-row">
+            <button class="btn btn-ghost" onclick="DoctorMgmt.closeConfirmModal()">Cancel</button>
+            <button id="dm-confirm-del-btn" class="btn btn-danger" onclick="DoctorMgmt.executeDelete()">
+                &#x1F5D1;&#xFE0F; Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- SHOP ADD / EDIT MODAL ---------------------------------------- -->
+<div id="sm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div id="sm-modal-title" style="font-size:16px;font-weight:700"></div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="ShopMgmt.closeModal()">&times;</button>
+        </div>
+        <div id="sm-modal-err" style="margin-bottom:4px"></div>
+        <div id="sm-modal-body" class="scroll" style="max-height:65vh;overflow-y:auto;padding-right:4px"></div>
+        <div class="d-row" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="ShopMgmt.closeModal()">Cancel</button>
+            <button id="sm-modal-save-btn" class="btn btn-primary" onclick="ShopMgmt.saveEntry()">
+                &#x2714;&#xFE0F; Save Shop
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- SHOP DELETE CONFIRM MODAL ----------------------------------- -->
+<div id="sm-confirm-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center">
+        <div class="modal-handle"></div>
+        <div style="font-size:36px;margin-bottom:10px">&#x1F5D1;&#xFE0F;</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:8px">Delete Shop?</div>
+        <div id="sm-confirm-msg" style="font-size:14px;color:var(--tx2);margin-bottom:20px;line-height:20px"></div>
+        <div class="d-row">
+            <button class="btn btn-ghost" onclick="ShopMgmt.closeConfirmModal()">Cancel</button>
+            <button id="sm-confirm-del-btn" class="btn btn-danger" onclick="ShopMgmt.executeDelete()">
+                &#x1F5D1;&#xFE0F; Delete
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- PET PHOTO VIEWER MODAL -------------------------------------------------------- -->
+<div id="photo-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet" style="text-align:center;padding:16px 16px 20px">
+        <div class="modal-handle"></div>
+        <div id="photo-modal-title" style="font-size:16px;font-weight:700;margin-bottom:14px">&#x1F5BC;&#xFE0F; Pet Photo</div>
+        <div style="border-radius:14px;overflow:hidden;background:var(--sf2);
+                    min-height:80px;display:flex;align-items:center;justify-content:center;
+                    margin-bottom:14px">
+            <img id="photo-modal-img" src="" alt="Pet photo"
+                 style="max-width:100%;max-height:60vh;object-fit:contain;display:block;border-radius:12px">
+        </div>
+        <div id="photo-modal-err"
+             style="display:none;color:var(--er);font-size:13px;margin-bottom:12px;line-height:19px"></div>
+        <button class="btn btn-ghost" onclick="closePetPhotoModal()">&#x2715; Close</button>
+    </div>
+</div>
+
+<!-- --- BREEDING CONTACT MODAL --------------------------------------- -->
+<div id="breed-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;gap:13px;align-items:center;margin-bottom:17px">
+            <div style="width:58px;height:58px;border-radius:15px;background:var(--or-p);
+                        display:flex;align-items:center;justify-content:center;font-size:28px"
+                 id="breed-modal-icon">&#x1F43E;</div>
+            <div>
+                <div id="breed-modal-name" style="font-size:17px;font-weight:700"></div>
+                <div id="breed-modal-sub"  style="font-size:13px;color:var(--tx2)"></div>
+                <span class="badge badge-or">&#x1F49E; Available for breeding</span>
+            </div>
+        </div>
+        <div class="card"><div id="breed-modal-details"></div></div>
+        <div style="background:var(--ok-p);border-radius:10px;padding:11px 13px;margin-top:12px;
+                    font-size:12px;color:#065F46;line-height:18px">
+            &#x2139;&#xFE0F; Owner details are shared with their consent. Please be respectful and responsible.
+        </div>
+        <div class="d-row mt-8">
+            <button id="breed-modal-contact" class="btn btn-primary">&#x1F4E9; Send Interest</button>
+            <button class="btn btn-ghost" onclick="closeBreedingModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- --- REPORT COMMENTS MODAL ---------------------------------------- -->
+<div id="rc-modal" class="modal-bg" style="display:none">
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div style="font-size:16px;font-weight:700">&#x1F4AC; Report Comments</div>
+            <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                onclick="closeReportCommentsModal()">&times;</button>
+        </div>
+        <div id="rc-report-summary"
+             style="font-size:12px;color:var(--tx2);margin-bottom:14px;padding:8px 10px;
+                    background:var(--sf2);border-radius:8px;line-height:18px"></div>
+        <div id="rc-comments-list"
+             class="scroll"
+             style="max-height:40vh;overflow-y:auto;margin-bottom:14px;
+                    border:1px solid var(--bd);border-radius:10px;padding:10px;
+                    display:flex;flex-direction:column;gap:10px">
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;
+                    letter-spacing:.5px;margin-bottom:6px" id="rc-form-label">Add Comment</div>
+        <div id="rc-comment-err"
+             style="color:var(--er);font-size:11px;font-weight:600;display:none;margin-bottom:6px"></div>
+        <textarea id="rc-comment-input" class="field-input"
+            placeholder="Type your comment here…" rows="3"
+            style="resize:vertical;font-size:13px"></textarea>
+        <div class="d-row" style="margin-top:10px">
+            <button class="btn btn-ghost" id="rc-cancel-edit-btn"
+                style="display:none" onclick="rcCancelEdit()">Cancel edit</button>
+            <button class="btn btn-primary" id="rc-save-btn"
+                onclick="rcSaveComment()">&#x1F4BE; Save Comment</button>
+        </div>
+    </div>
+</div>

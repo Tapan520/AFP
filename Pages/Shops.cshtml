@@ -1,0 +1,114 @@
+@page "/shops/{city?}"
+@model AFP.Pages.ShopsModel
+@{
+    Layout = null;
+    var title     = string.IsNullOrEmpty(Model.CitySlug)
+        ? "Pet Food & Supply Shops in India | All For Pets"
+        : $"Pet Food & Supply Shops in {Model.CityName} | All For Pets";
+    var descr     = string.IsNullOrEmpty(Model.CitySlug)
+        ? "Find pet-food and pet-supply shops across India. All For Pets — the official municipal pet registry."
+        : $"Find {Model.Shops.Count} pet-food and pet-supply shops in {Model.CityName}. Address, timings, contact, specialities — All For Pets municipal registry.";
+    var canonical = $"{Request.Scheme}://{Request.Host}{Request.Path}";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@title</title>
+    <meta name="description" content="@descr" />
+    <link rel="canonical" href="@canonical" />
+    <meta name="robots" content="index,follow" />
+
+    <meta property="og:type"        content="website" />
+    <meta property="og:title"       content="@title" />
+    <meta property="og:description" content="@descr" />
+    <meta property="og:url"         content="@canonical" />
+    <meta name="twitter:card"        content="summary" />
+    <meta name="twitter:title"       content="@title" />
+    <meta name="twitter:description" content="@descr" />
+
+    @if (Model.Shops.Any())
+    {
+        <script type="application/ld+json">
+        {
+          "@@context": "https://schema.org",
+          "@@type": "ItemList",
+          "itemListElement": [
+            @Html.Raw(string.Join(",\n            ", Model.Shops.Select((s, i) => $@"{{
+              ""@@type"": ""ListItem"",
+              ""position"": {i + 1},
+              ""item"": {{
+                ""@@type"": ""PetStore"",
+                ""name"": {System.Text.Json.JsonSerializer.Serialize(s.Name ?? "")},
+                ""description"": {System.Text.Json.JsonSerializer.Serialize(s.Speciality ?? "")},
+                ""telephone"": {System.Text.Json.JsonSerializer.Serialize(s.Mobile ?? "")},
+                ""address"": {System.Text.Json.JsonSerializer.Serialize(s.Address ?? "")},
+                ""areaServed"": {System.Text.Json.JsonSerializer.Serialize(s.CityName ?? Model.CityName)}
+              }}
+            }}")))
+          ]
+        }
+        </script>
+    }
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; background:#F7F5F2; color:#1A1814; }
+        .wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px; }
+        h1 { font-size:24px; margin:0 0 6px; }
+        .sub { color:#5A564F; font-size:14px; margin-bottom:20px; }
+        .card { background:#fff; border-radius:14px; box-shadow:0 2px 8px rgba(0,0,0,.05); padding:16px 18px; margin-bottom:12px; }
+        .name { font-size:16px; font-weight:700; }
+        .owner { color:#5A564F; font-size:12px; margin-top:2px; }
+        .row { margin-top:8px; font-size:13px; color:#3A3630; line-height:20px; }
+        .row strong { color:#1A1814; }
+        a.cta { display:inline-block; margin-top:6px; padding:8px 14px; background:#E8670A; color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; }
+        .empty { text-align:center; color:#5A564F; padding:32px 12px; }
+        .brand { text-align:center; color:#9A958C; font-size:11px; margin-top:24px; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <h1>Pet Shops in @Model.CityName</h1>
+        <div class="sub">
+            @if (Model.Shops.Any())
+            {
+                @($"{Model.Shops.Count} pet-food and pet-supply shops verified on the All For Pets Municipal Portal.")
+            }
+            else
+            {
+                @($"No shops listed for {Model.CityName} yet — check back soon.")
+            }
+        </div>
+
+        @if (!Model.Shops.Any())
+        {
+            <div class="card empty">
+                <p>No pet shops found for <strong>@Model.CityName</strong>.</p>
+                <a class="cta" href="/">Explore All For Pets →</a>
+            </div>
+        }
+        else
+        {
+            foreach (var s in Model.Shops)
+            {
+                <div class="card">
+                    <div class="name">@s.Name</div>
+                    <div class="owner">@(!string.IsNullOrWhiteSpace(s.OwnerName) ? $"Owner: {s.OwnerName}" : "")</div>
+                    @if (!string.IsNullOrWhiteSpace(s.Speciality))
+                    { <div class="row"><strong>Speciality:</strong> @s.Speciality</div> }
+                    @if (!string.IsNullOrWhiteSpace(s.Address))
+                    { <div class="row"><strong>📍</strong> @s.Address, @s.CityName</div> }
+                    @if (!string.IsNullOrWhiteSpace(s.Timings))
+                    { <div class="row"><strong>🕒</strong> @s.Timings</div> }
+                    @if (!string.IsNullOrWhiteSpace(s.Mobile))
+                    { <div class="row"><strong>📞</strong> <a href="tel:@s.Mobile">@s.Mobile</a></div> }
+                </div>
+            }
+            <a class="cta" href="/">Register your pet on All For Pets →</a>
+        }
+
+        <div class="brand">🐾 All For Pets — Municipal Pet Registry</div>
+    </div>
+</body>
+</html>

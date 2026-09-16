@@ -1,0 +1,640 @@
+openapi: 3.0.3
+info:
+  title: All For Pets — Municipal Pet Registry API
+  version: 1.0.0
+  description: |
+    REST API powering the AFP web + Expo mobile app.
+
+    ### Authentication
+    - `POST /api/auth/login` returns `token` (JWT access, 15 min) and
+      `refreshToken` (opaque, device-bound, 1–30 days).
+    - Send `Authorization: Bearer <token>` on every protected call.
+    - On 401 → call `POST /api/auth/refresh` with the refresh token; a **new**
+      refresh token is returned (rotation) and the old one is revoked.
+    - Mobile clients should send `X-Device-Label` and `X-Expo-Push-Token`
+      headers on login/register/refresh so we can list / revoke sessions and
+      push notifications.
+
+    ### Caching
+    - Public `/api/geo/*` endpoints return `ETag` + `Cache-Control`.
+      Send `If-None-Match` to get a 304 with an empty body.
+
+    ### File uploads (mobile)
+    - Prefer the `/upload-photo/sign` + `/upload-photo/confirm` flow so the
+      binary goes directly to S3/Azure/Cloudinary without touching the API.
+servers:
+  - url: https://afp.up.railway.app
+    description: Production (Railway)
+  - url: http://localhost:3000
+    description: Local development (Node)
+
+tags:
+  - name: Auth
+  - name: Geo
+  - name: Pets
+  - name: Doctors
+  - name: Shops
+  - name: Reports
+  - name: Discussions
+  - name: Admin
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ───────────── Auth ─────────────
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Register a citizen account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, mobile, password]
+              properties:
+                name:     { type: string, example: "Tapan Singh" }
+                mobile:   { type: string, example: "9810000000" }
+                email:    { type: string, format: email, nullable: true }
+                password: { type: string, format: password, minLength: 8 }
+                address:  { type: string, nullable: true }
+                cityId:   { type: integer, nullable: true }
+                nigamId:  { type: integer, nullable: true }
+                zoneId:   { type: integer, nullable: true }
+                wardId:   { type: integer, nullable: true }
+      responses:
+        "201": { $ref: "#/components/responses/AuthOk" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Login with mobile or email + password
+      parameters:
+        - $ref: "#/components/parameters/DeviceLabel"
+        - $ref: "#/components/parameters/ExpoPushToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string, description: "Mobile or email" }
+                password:   { type: string, format: password }
+                remember:   { type: boolean, description: "30-day refresh vs 1-day" }
+      responses:
+        "200": { $ref: "#/components/responses/AuthOk" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Inactive account or geo scope disabled }
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Exchange a refresh token for a fresh access token (rotates the refresh token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/AuthOk" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke a single device or all sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string, description: "Revoke this device only" }
+                allDevices:   { type: boolean, description: "Revoke every session (needs Bearer)" }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { revoked: { type: integer } } } } }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/User" } } }
+    put:
+      tags: [Auth]
+      summary: Update own profile / change password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:            { type: string }
+                mobile:          { type: string }
+                email:           { type: string, format: email }
+                address:         { type: string }
+                currentPassword: { type: string, format: password }
+                newPassword:     { type: string, format: password }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/User" } } }
+
+  /api/auth/sessions:
+    get:
+      tags: [Auth]
+      summary: List the caller's active refresh-token sessions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Session" }
+
+  /api/auth/sessions/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke a specific session (device)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { revoked: { type: integer } } } } }
+
+  # ───────────── Geo ─────────────
+  /api/geo/cities:
+    get:
+      tags: [Geo]
+      security: []
+      summary: Active cities (cached, ETag)
+      parameters:
+        - { in: header, name: If-None-Match, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/City" } }
+        "304": { description: Not modified — use cached copy }
+
+  /api/geo/nigams:
+    get:
+      tags: [Geo]
+      security: []
+      parameters:
+        - { in: query, name: cityId, schema: { type: integer } }
+        - { in: header, name: If-None-Match, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Nigam" } } } }
+        "304": { description: Not modified }
+
+  /api/geo/zones:
+    get:
+      tags: [Geo]
+      security: []
+      parameters:
+        - { in: query, name: nigamId, schema: { type: integer } }
+        - { in: header, name: If-None-Match, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Zone" } } } }
+        "304": { description: Not modified }
+
+  /api/geo/wards:
+    get:
+      tags: [Geo]
+      security: []
+      parameters:
+        - { in: query, name: zoneId,  schema: { type: integer } }
+        - { in: query, name: nigamId, schema: { type: integer } }
+        - { in: header, name: If-None-Match, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Ward" } } } }
+        "304": { description: Not modified }
+
+  # ───────────── Pets ─────────────
+  /api/pets/my:
+    get:
+      tags: [Pets]
+      summary: Citizen's own pets
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Pet" } } } }
+
+  /api/pets/search:
+    get:
+      tags: [Pets]
+      security: []
+      parameters:
+        - { in: query, name: q,      schema: { type: string } }
+        - { in: query, name: cityId, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Pet" } } } }
+
+  /api/pets/public/{petId}:
+    get:
+      tags: [Pets]
+      security: []
+      summary: Public QR-scannable pet profile (approved pets only)
+      parameters:
+        - { in: path, name: petId, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/PublicPet" } } }
+        "404": { description: Not found or not yet approved }
+
+  /api/pets:
+    post:
+      tags: [Pets]
+      summary: Register a new pet (pending admin approval)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, species]
+              properties:
+                name:        { type: string }
+                species:     { type: string, enum: [dog, cat, rabbit, bird, other] }
+                breed:       { type: string, nullable: true }
+                colour:      { type: string, nullable: true }
+                gender:      { type: string, enum: [male, female], nullable: true }
+                dateOfBirth: { type: string, format: date, nullable: true }
+                paymentId:   { type: string, nullable: true }
+                txnRef:      { type: string, nullable: true }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/Pet" } } }
+
+  /api/pets/{id}:
+    get:
+      tags: [Pets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/Pet" } } }
+
+  /api/pets/{id}/upload-photo/sign:
+    post:
+      tags: [Pets]
+      summary: Get a pre-signed URL to PUT the pet photo directly to cloud storage
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mimeType]
+              properties:
+                mimeType: { type: string, enum: [image/jpeg, image/png, image/webp, image/gif] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadSigned" }
+
+  /api/pets/{id}/upload-photo/confirm:
+    post:
+      tags: [Pets]
+      summary: After a successful direct upload, persist the key/URL on the pet row
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string, description: "Server-computed key returned by /sign" }
+                url: { type: string, description: "Cloudinary secure_url (Cloudinary provider only)" }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } }
+
+  /api/pets/{id}/upload-certificate/sign:
+    post:
+      tags: [Pets]
+      summary: Same as /upload-photo/sign but for the vaccination certificate (PDF allowed)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mimeType]
+              properties:
+                mimeType: { type: string, enum: [image/jpeg, image/png, image/webp, image/gif, application/pdf] }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/UploadSigned" } } }
+
+  /api/pets/{id}/upload-certificate/confirm:
+    post:
+      tags: [Pets]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [key], properties: { key: { type: string }, url: { type: string } } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } }
+
+  # ───────────── Doctors / Shops (public) ─────────────
+  /api/doctors:
+    get:
+      tags: [Doctors]
+      security: []
+      parameters:
+        - { in: query, name: cityId, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Doctor" } } } }
+
+  /api/shops:
+    get:
+      tags: [Shops]
+      security: []
+      parameters:
+        - { in: query, name: cityId, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Shop" } } } }
+
+  # ───────────── Reports ─────────────
+  /api/reports:
+    post:
+      tags: [Reports]
+      summary: File a report (stray, lost, unlicensed, cruelty)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, address, mobile]
+              properties:
+                type:    { type: string, enum: [stray, lost, unlicensed, cruelty] }
+                address: { type: string }
+                mobile:  { type: string }
+                notes:   { type: string, nullable: true }
+      responses:
+        "201":
+          description: Created
+
+  # ───────────── Discussions ─────────────
+  /api/discussions:
+    get:
+      tags: [Discussions]
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [Discussions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, body]
+              properties:
+                title:    { type: string }
+                body:     { type: string }
+                category: { type: string, default: general }
+      responses:
+        "201": { description: Created }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DeviceLabel:
+      in: header
+      name: X-Device-Label
+      required: false
+      schema: { type: string, example: "iPhone 15 · Tapan" }
+      description: Displayed in the "Manage devices" screen after login.
+    ExpoPushToken:
+      in: header
+      name: X-Expo-Push-Token
+      required: false
+      schema: { type: string }
+      description: Stored per session so push notifications can be sent to this device.
+
+  responses:
+    AuthOk:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [token, refreshToken, user]
+            properties:
+              token:        { type: string, description: "JWT access token, 15 min" }
+              refreshToken: { type: string, description: "Opaque refresh token" }
+              user:         { $ref: "#/components/schemas/User" }
+    Unauthorized:
+      description: Invalid credentials or token
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    BadRequest:
+      description: Bad input
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Duplicate resource
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:   { type: string }
+        details: { type: string, nullable: true }
+    User:
+      type: object
+      properties:
+        id:          { type: integer }
+        name:        { type: string }
+        mobile:      { type: string }
+        email:       { type: string, nullable: true }
+        address:     { type: string, nullable: true }
+        role:        { type: string, enum: [citizen, ward_admin, zone_admin, nigam_admin, city_admin, super_admin] }
+        city_id:     { type: integer, nullable: true }
+        city_name:   { type: string, nullable: true }
+        nigam_id:    { type: integer, nullable: true }
+        nigam_name:  { type: string, nullable: true }
+        zone_id:     { type: integer, nullable: true }
+        zone_name:   { type: string, nullable: true }
+        ward_id:     { type: integer, nullable: true }
+        ward_number: { type: string, nullable: true }
+        is_active:   { type: boolean }
+        created_at:  { type: string, format: date-time }
+    Session:
+      type: object
+      properties:
+        id:              { type: integer }
+        device_label:    { type: string, nullable: true }
+        ip_address:      { type: string, nullable: true }
+        created_at:      { type: string, format: date-time }
+        last_used_at:    { type: string, format: date-time, nullable: true }
+        expires_at:      { type: string, format: date-time }
+    City:
+      type: object
+      properties:
+        id:    { type: integer }
+        name:  { type: string }
+        state: { type: string, nullable: true }
+    Nigam:
+      type: object
+      properties:
+        id:               { type: integer }
+        name:             { type: string }
+        city_id:          { type: integer }
+        registration_fee: { type: number }
+        renewal_fee:      { type: number }
+        transfer_fee:     { type: number }
+    Zone:
+      type: object
+      properties:
+        id:       { type: integer }
+        name:     { type: string }
+        nigam_id: { type: integer }
+    Ward:
+      type: object
+      properties:
+        id:          { type: integer }
+        ward_number: { type: string }
+        zone_id:     { type: integer, nullable: true }
+        nigam_id:    { type: integer, nullable: true }
+    Pet:
+      type: object
+      properties:
+        id:                  { type: integer }
+        pet_id:              { type: string, description: "Human-readable ID, e.g. AFP-JP-0004" }
+        owner_id:            { type: integer }
+        name:                { type: string }
+        species:             { type: string }
+        breed:               { type: string, nullable: true }
+        colour:              { type: string, nullable: true }
+        gender:              { type: string, nullable: true }
+        date_of_birth:       { type: string, format: date, nullable: true }
+        photo_url:           { type: string, nullable: true }
+        certificate_url:     { type: string, nullable: true }
+        registration_status: { type: string, enum: [pending, approved, rejected] }
+        licence_status:      { type: string, nullable: true }
+        licence_expiry_date: { type: string, format: date, nullable: true }
+        breeding_opt_in:     { type: boolean }
+        owner_name:          { type: string, nullable: true }
+        city_name:           { type: string, nullable: true }
+        nigam_name:          { type: string, nullable: true }
+        ward_number:         { type: string, nullable: true }
+        created_at:          { type: string, format: date-time }
+    PublicPet:
+      type: object
+      properties:
+        pet_id:              { type: string }
+        name:                { type: string }
+        species:             { type: string }
+        breed:               { type: string, nullable: true }
+        colour:              { type: string, nullable: true }
+        gender:              { type: string, nullable: true }
+        photo_url:           { type: string, nullable: true }
+        owner_name:          { type: string, nullable: true }
+        city_name:           { type: string, nullable: true }
+        nigam_name:          { type: string, nullable: true }
+        ward_number:         { type: string, nullable: true }
+        licence_expiry_date: { type: string, format: date, nullable: true }
+    Doctor:
+      type: object
+      properties:
+        id:             { type: integer }
+        name:           { type: string }
+        qualification:  { type: string, nullable: true }
+        specialization: { type: string, nullable: true }
+        clinic_name:    { type: string, nullable: true }
+        address:        { type: string, nullable: true }
+        mobile:         { type: string, nullable: true }
+        timings:        { type: string, nullable: true }
+        is_24hr:        { type: boolean }
+        city_name:      { type: string, nullable: true }
+    Shop:
+      type: object
+      properties:
+        id:         { type: integer }
+        name:       { type: string }
+        owner_name: { type: string, nullable: true }
+        speciality: { type: string, nullable: true }
+        address:    { type: string, nullable: true }
+        mobile:     { type: string, nullable: true }
+        timings:    { type: string, nullable: true }
+        city_name:  { type: string, nullable: true }
+    UploadSigned:
+      type: object
+      description: |
+        Response of /upload-*/sign. The mobile client does:
+        ```
+        fetch(uploadUrl, { method, headers, body: fileBlob })   // S3/Azure
+        // or for Cloudinary: multipart POST including formFields + file
+        ```
+        Then POSTs `{ key }` (and Cloudinary's `url`) to /upload-*/confirm.
+      properties:
+        uploadUrl:  { type: string, nullable: true, description: "Null for local dev provider" }
+        method:     { type: string, enum: [PUT, POST] }
+        headers:    { type: object, additionalProperties: { type: string } }
+        formFields: { type: object, additionalProperties: { type: string }, nullable: true }
+        key:        { type: string }
+        publicUrl:  { type: string, nullable: true }
+        provider:   { type: string, enum: [s3, azure, cloudinary, local] }
+        expiresIn:  { type: integer, description: "Seconds until the pre-signed URL expires" }
+        maxBytes:   { type: integer }

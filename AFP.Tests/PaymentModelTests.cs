@@ -1,0 +1,169 @@
+using System.Security.Cryptography;
+using System.Text;
+using AFP.Pages;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace AFP.Tests;
+
+public class PaymentModelTests
+{
+    private static PaymentModel CreateModel(Dictionary<string, string?>? settings = null)
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings ?? new Dictionary<string, string?>())
+            .Build();
+
+        return new PaymentModel(cfg, new StubHttpClientFactory(), NullLogger<PaymentModel>.Instance);
+    }
+
+    private static T Get<T>(object obj, string prop)
+    {
+        var p = obj.GetType().GetProperty(prop)
+                ?? throw new InvalidOperationException($"Property '{prop}' not found.");
+        return (T)p.GetValue(obj)!;
+    }
+
+    [Fact]
+    public void FeeConstants_HaveExpectedDefaults()
+    {
+        Assert.Equal(200, PaymentModel.FeeRegistration);
+        Assert.Equal(150, PaymentModel.FeeRenewal);
+        Assert.Equal(100, PaymentModel.FeeTransfer);
+        Assert.Equal("INR", PaymentModel.Currency);
+    }
+
+    [Fact]
+    public async Task OnPostCreateOrderAsync_TestMode_ReturnsSyntheticOrder()
+    {
+        var model = CreateModel(new Dictionary<string, string?>
+        {
+            ["Payment:TestMode"] = "true",
+        });
+
+        var result = await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", PetName = "Rex" });
+
+        var json    = Assert.IsType<JsonResult>(result);
+        var payload = json.Value!;
+
+        Assert.True(Get<bool>(payload, "testMode"));
+        Assert.Equal("rzp_test_mode", Get<string>(payload, "keyId"));
+        Assert.Equal(200 * 100, Get<int>(payload, "amount"));
+        Assert.Equal("INR", Get<string>(payload, "currency"));
+        Assert.Equal("registration", Get<string>(payload, "purpose"));
+        Assert.Equal("Rex", Get<string>(payload, "petName"));
+        Assert.StartsWith("TEST_ORDER_", Get<string>(payload, "orderId"));
+    }
+
+    [Theory]
+    [InlineData("registration", 200)]
+    [InlineData("renewal",      150)]
+    [InlineData("transfer",     100)]
+    [InlineData("unknown",      200)] // defaults to registration
+    public async Task OnPostCreateOrderAsync_TestMode_UsesCorrectFeeForPurpose(string purpose, int rupees)
+    {
+        var model = CreateModel(new Dictionary<string, string?>
+        {
+            ["Payment:TestMode"] = "true",
+        });
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = purpose });
+
+        Assert.Equal(rupees * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public void OnPostVerify_TestOrderPrefix_AutoApprovesWithoutSecret()
+    {
+        var model = CreateModel();
+        var req = new VerifyRequest
+        {
+            OrderId   = "TEST_ORDER_20250101000000_abc",
+            PaymentId = "pay_test_1",
+            Signature = "irrelevant",
+        };
+
+        var result  = (JsonResult)model.OnPostVerify(req);
+        var payload = result.Value!;
+
+        Assert.True(Get<bool>(payload, "verified"));
+        Assert.True(Get<bool>(payload, "testMode"));
+        Assert.Equal(req.OrderId, Get<string>(payload, "orderId"));
+        Assert.StartsWith("TEST-PAY-", Get<string>(payload, "txnRef"));
+    }
+
+    [Fact]
+    public void OnPostVerify_ValidSignature_ReturnsVerifiedTrue()
+    {
+        const string secret = "test_secret_key";
+        var model = CreateModel(new Dictionary<string, string?>
+        {
+            ["Razorpay:KeySecret"] = secret,
+        });
+
+        var orderId   = "order_9A0abc";
+        var paymentId = "pay_9A0xyz";
+        var signature = ComputeHmacHex(secret, $"{orderId}|{paymentId}");
+
+        var result  = (JsonResult)model.OnPostVerify(new VerifyRequest
+        {
+            OrderId   = orderId,
+            PaymentId = paymentId,
+            Signature = signature,
+        });
+        var payload = result.Value!;
+
+        Assert.True(Get<bool>(payload, "verified"));
+        Assert.False(Get<bool>(payload, "testMode"));
+        Assert.Equal($"RZP-{paymentId}", Get<string>(payload, "txnRef"));
+    }
+
+    [Fact]
+    public void OnPostVerify_InvalidSignature_Returns400()
+    {
+        var model = CreateModel(new Dictionary<string, string?>
+        {
+            ["Razorpay:KeySecret"] = "test_secret_key",
+        });
+
+        var result = (JsonResult)model.OnPostVerify(new VerifyRequest
+        {
+            OrderId   = "order_9A0abc",
+            PaymentId = "pay_9A0xyz",
+            Signature = new string('0', 64),
+        });
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.False(Get<bool>(result.Value!, "verified"));
+    }
+
+    [Fact]
+    public void OnPostVerify_MissingSecret_Returns500()
+    {
+        var model = CreateModel();
+        var result = model.OnPostVerify(new VerifyRequest
+        {
+            OrderId   = "order_9A0abc",
+            PaymentId = "pay_9A0xyz",
+            Signature = "abc",
+        });
+        var status = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(500, status.StatusCode);
+    }
+
+    private static string ComputeHmacHex(string key, string message)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message)))
+                      .ToLowerInvariant();
+    }
+
+    private sealed class StubHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new HttpClient();
+    }
+}

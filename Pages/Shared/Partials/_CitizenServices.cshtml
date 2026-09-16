@@ -1,0 +1,244 @@
+@* Citizen ancillary screens: search, notifications, vaccines, adoption, lost&found, emergency,
+   microchip, events, doctor search, shop search, breeding, pet census, forum. *@
+
+<!-- --- SCREEN: SEARCH PET ------------------------------------------- -->
+<div id="screen-searchPet" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">&#x1F43E;</div>
+            <span class="topbar-title">Search Pet</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+        <div class="search-wrap">
+            <span class="search-icon">&#x1F50D;</span>
+            <input id="searchpet-q" class="field-input" placeholder="Pet name, owner, Pet ID…"
+                oninput="doSearchPet()" style="padding-left:34px" />
+        </div>
+        <div class="chips">
+            <button class="chip searchpet-chip active" data-flt="all" onclick="setSearchFilter(this,'all')">All</button>
+            <button class="chip searchpet-chip" data-flt="dog" onclick="setSearchFilter(this,'dog')">&#x1F436; Dogs</button>
+            <button class="chip searchpet-chip" data-flt="cat" onclick="setSearchFilter(this,'cat')">&#x1F431; Cats</button>
+            <button class="chip searchpet-chip" data-flt="other" onclick="setSearchFilter(this,'other')">&#x1F43E; Others</button>
+        </div>
+    </div>
+    <div id="search-results" class="scroll" style="padding:13px"></div>
+    <div id="search-body"></div>
+</div>
+
+<!-- --- SCREEN: NOTIFICATIONS --------------------------------------- -->
+<div id="screen-notifications" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F514; Notifications</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="notif-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: VACCINE REMINDERS ----------------------------------- -->
+<div id="screen-vaxReminders" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F489; Vaccine Reminders</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="vax-reminder-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: ADOPTION CENTER ------------------------------------- -->
+<div id="screen-adoption" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F43E; Pet Adoption</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="adoption-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: LOST & FOUND ---------------------------------------- -->
+<div id="screen-lostFound" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F50D; Lost &amp; Found</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="lostfound-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: EMERGENCY VET --------------------------------------- -->
+<div id="screen-emergencyVet" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F6A8; Emergency Vet</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="emergency-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: MICROCHIP LOOKUP ------------------------------------ -->
+<div id="screen-microchip" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F4F2; Microchip Lookup</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="microchip-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: EVENTS ---------------------------------------------- -->
+<div id="screen-events" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F4C5; Community Events</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="events-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: SEARCH DOCTOR ----------------------------------------- -->
+<div id="screen-searchDoctor" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">Find a Vet</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+        <div class="search-wrap">
+            <span class="search-icon">&#x1F50D;</span>
+            <input id="searchdoc-q" class="field-input" placeholder="Name, clinic, specialization…"
+                oninput="doSearchDoctor()" style="padding-left:34px" />
+        </div>
+        <div class="chips">
+            <button class="chip searchdoc-chip active" data-city="" onclick="setDoctorFilter(this,'')">All</button>
+            <button class="chip searchdoc-chip" data-city="1" onclick="setDoctorFilter(this,'1')">&#x1F4CD; Jaipur</button>
+            <button class="chip searchdoc-chip" data-city="2" onclick="setDoctorFilter(this,'2')">&#x1F4CD; Delhi</button>
+            <button class="chip searchdoc-chip" data-city="3" onclick="setDoctorFilter(this,'3')">&#x1F4CD; Mumbai</button>
+        </div>
+    </div>
+    <div id="searchdoc-body"></div>
+    <div id="searchdoc-results" class="scroll" style="padding:13px"></div>
+</div>
+
+<!-- --- SCREEN: SEARCH SHOP ------------------------------------------- -->
+<div id="screen-searchShop" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">Pet Food Shops</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+        <div class="search-wrap">
+            <span class="search-icon">&#x1F50D;</span>
+            <input id="searchshop-q" class="field-input" placeholder="Shop name, speciality, area…"
+                oninput="doSearchShop()" style="padding-left:34px" />
+        </div>
+        <div class="chips">
+            <button class="chip searchshop-chip active" data-city="" onclick="setShopFilter(this,'')">All</button>
+            <button class="chip searchshop-chip" data-city="1" onclick="setShopFilter(this,'1')">&#x1F4CD; Jaipur</button>
+            <button class="chip searchshop-chip" data-city="2" onclick="setShopFilter(this,'2')">&#x1F4CD; Delhi</button>
+            <button class="chip searchshop-chip" data-city="3" onclick="setShopFilter(this,'3')">&#x1F4CD; Mumbai</button>
+        </div>
+    </div>
+    <div id="searchshop-results" class="scroll" style="padding:13px"></div>
+</div>
+
+<!-- --- SCREEN: BREEDING MATCH ------------------------------------------ -->
+<div id="screen-breedingMatch" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F49E; Breeding Match</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div style="padding:13px;background:#fff;border-bottom:1px solid var(--bd)">
+        <div class="chips">
+            <button class="chip breeding-species-chip active" data-sp=""
+                onclick="setBreedingSpecies(this,'')">All</button>
+            <button class="chip breeding-species-chip" data-sp="dog"
+                onclick="setBreedingSpecies(this,'dog')">&#x1F436; Dogs</button>
+            <button class="chip breeding-species-chip" data-sp="cat"
+                onclick="setBreedingSpecies(this,'cat')">&#x1F431; Cats</button>
+            <button class="chip breeding-species-chip" data-sp="rabbit"
+                onclick="setBreedingSpecies(this,'rabbit')">&#x1F430; Rabbits</button>
+            <button class="chip breeding-species-chip" data-sp="bird"
+                onclick="setBreedingSpecies(this,'bird')">&#x1F426; Birds</button>
+        </div>
+        <div class="d-row" style="gap:8px;margin-top:10px">
+            <input id="breeding-breed-q" class="field-input"
+                style="flex:2;font-size:13px"
+                placeholder="Breed (e.g. Labrador)"
+                oninput="doBreedingSearch()" />
+            <select id="breeding-gender" class="field-input"
+                style="flex:1;font-size:13px"
+                onchange="doBreedingSearch()">
+                <option value="">Any gender</option>
+                <option value="male">&#x2642; Male</option>
+                <option value="female">&#x2640; Female</option>
+            </select>
+        </div>
+    </div>
+    <div id="breeding-results" class="scroll" style="padding:13px"></div>
+</div>
+
+<!-- --- SCREEN: PET METER -------------------------------------------- -->
+<div id="screen-petMeter" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F4CA; Pet Census</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="meter-body" class="scroll" style="padding-bottom:70px"></div>
+    <div class="bnav">
+        <div class="bnav-item" onclick="bnavGo('home')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+        <div class="bnav-item" onclick="bnavGo('search')"><span class="bnav-icon">&#x1F50D;</span><span class="bnav-lbl">Search</span></div>
+        <div class="bnav-item active" onclick="bnavGo('meter')"><span class="bnav-icon">&#x1F4CA;</span><span class="bnav-lbl">Stats</span></div>
+        <div class="bnav-item" onclick="bnavGo('profile')"><span class="bnav-icon">&#x1F464;</span><span class="bnav-lbl">Profile</span></div>
+    </div>
+</div>
+
+<!-- --- SCREEN: COMMUNITY FORUM ---------------------------------------- -->
+<div id="screen-forum" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('dashboard')">&#x2190;</button>
+            <span class="topbar-title">&#x1F4AC; Community Forum</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="forum-body" class="scroll" style="padding-bottom:24px"></div>
+</div>
+
+<!-- --- SCREEN: FORUM THREAD -------------------------------------------- -->
+<div id="screen-forumThread" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('forum')">&#x2190;</button>
+            <span class="topbar-title">Discussion</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="forum-thread-body" class="scroll p-18 pb-32"></div>
+</div>

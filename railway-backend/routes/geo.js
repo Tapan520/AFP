@@ -1,4 +1,4 @@
-﻿﻿// ─────────────────────────────────────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────────────────────────────────────
 // routes/geo.js  -  City -> Nigam -> Zone -> Ward
 //
 // Public  GET /api/geo/cities          - all active cities
@@ -12,20 +12,42 @@
 // Admin   POST/PUT for all four levels (super_admin)
 // ─────────────────────────────────────────────────────────────────────────────
 const express = require("express");
+const crypto  = require("crypto");
 const pool    = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 
+// ── HTTP cache helper for public geo reads ───────────────────────────────────
+// Cities / nigams / zones / wards change rarely, so we hand out:
+//   • Cache-Control: public, max-age=300, stale-while-revalidate=86400
+//     ↳ Browser & CDN cache for 5 min, serve stale for a day while revalidating.
+//   • ETag: strong SHA-1 hash of the response body → cheap 304 replies.
+// The mobile Expo app just sets `If-None-Match` on every request and gets a
+// 304 with zero body when nothing changed, keeping the geo tree offline-friendly.
+function sendCached(res, req, rows, { maxAge = 300, swr = 86400 } = {}) {
+  const body = JSON.stringify(rows);
+  const etag = 'W/"' + crypto.createHash("sha1").update(body).digest("base64") + '"';
+  res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`);
+  res.set("ETag", etag);
+  res.set("Vary", "Accept-Encoding");
+  const inm = req.headers["if-none-match"];
+  if (inm && inm === etag) {
+    return res.status(304).end();
+  }
+  res.type("application/json").send(body);
+}
+
 // ── Public read routes ────────────────────────────────────────────────────────
 
 // GET /api/geo/cities
-router.get("/cities", async (_req, res) => {
+router.get("/cities", async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT id, name, state FROM cities WHERE is_active = TRUE ORDER BY name"
     );
-    res.json(rows);
+    // Cities change rarely — cache for an hour, tolerate a week of staleness.
+    return sendCached(res, req, rows, { maxAge: 3600, swr: 604800 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -41,7 +63,7 @@ router.get("/nigams", async (req, res) => {
        ORDER BY name`,
       cityId ? [cityId] : []
     );
-    res.json(rows);
+    return sendCached(res, req, rows, { maxAge: 600, swr: 604800 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -57,7 +79,7 @@ router.get("/zones", async (req, res) => {
        ORDER BY name`,
       nigamId ? [nigamId] : []
     );
-    res.json(rows);
+    return sendCached(res, req, rows, { maxAge: 600, swr: 604800 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -85,7 +107,7 @@ router.get("/wards", async (req, res) => {
       params = [];
     }
     const { rows } = await pool.query(query, params);
-    res.json(rows);
+    return sendCached(res, req, rows, { maxAge: 600, swr: 604800 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -345,6 +367,72 @@ router.put("/wards/:id", authenticate, requireRole("super_admin"), async (req, r
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin delete routes (super_admin only) ───────────────────────────────────
+// Deletes are guarded by DB FK constraints; child rows must be removed first.
+
+function _friendlyChildErr(err, level) {
+  const msg = (err && err.message) || "";
+  const isFk = err && (err.code === "23503" || err.errno === 1451 || /foreign key/i.test(msg));
+  if (isFk) {
+    const hint = {
+      city:  "Delete or reassign its nigams first.",
+      nigam: "Delete or reassign its zones first.",
+      zone:  "Delete or reassign its wards first.",
+      ward:  "Reassign or delete users/pets attached to this ward first.",
+    }[level] || "Remove dependent records first.";
+    return { status: 409, error: `Cannot delete ${level}: it still has related records. ${hint}` };
+  }
+  return { status: 500, error: msg || `Failed to delete ${level}.` };
+}
+
+// DELETE /api/geo/cities/:id
+router.delete("/cities/:id", authenticate, requireRole("super_admin"), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query("DELETE FROM cities WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "City not found." });
+    res.json({ message: "City deleted.", id: +req.params.id });
+  } catch (err) {
+    const e = _friendlyChildErr(err, "city");
+    res.status(e.status).json({ error: e.error });
+  }
+});
+
+// DELETE /api/geo/nigams/:id
+router.delete("/nigams/:id", authenticate, requireRole("super_admin"), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query("DELETE FROM nigams WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Nigam not found." });
+    res.json({ message: "Nigam deleted.", id: +req.params.id });
+  } catch (err) {
+    const e = _friendlyChildErr(err, "nigam");
+    res.status(e.status).json({ error: e.error });
+  }
+});
+
+// DELETE /api/geo/zones/:id
+router.delete("/zones/:id", authenticate, requireRole("super_admin"), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query("DELETE FROM zones WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Zone not found." });
+    res.json({ message: "Zone deleted.", id: +req.params.id });
+  } catch (err) {
+    const e = _friendlyChildErr(err, "zone");
+    res.status(e.status).json({ error: e.error });
+  }
+});
+
+// DELETE /api/geo/wards/:id
+router.delete("/wards/:id", authenticate, requireRole("super_admin"), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query("DELETE FROM wards WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Ward not found." });
+    res.json({ message: "Ward deleted.", id: +req.params.id });
+  } catch (err) {
+    const e = _friendlyChildErr(err, "ward");
+    res.status(e.status).json({ error: e.error });
   }
 });
 

@@ -86,10 +86,11 @@ function renderAdminTabBar(user) {
         ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
         ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
         ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
-        { key: "cities",     label: "Cities" },
+        ...(isSA ? [{ key: "cities",    label: "Cities"       }] : []),
         ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
         ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
         ...(isSA ? [{ key: "analytics", label: "&#x1F4CA; Stats" }] : []),
+        ...(isSA ? [{ key: "logs",      label: "&#x1F4DC; Logs"  }] : []),
     ];
     document.getElementById("admin-tabs").innerHTML = tabs.map(t =>
         `<button class="tab${AdminState.adminTab === t.key ? " active" : ""}"
@@ -153,7 +154,10 @@ async function renderAdminTab(tab) {
                         <div style="font-size:26px;font-weight:700;color:var(--ok)">${s?.approved || 0}</div>
                     </div>
                 </div>
-                ${alertBoxHTML("info", `${AdminState.adminPending.length} application${AdminState.adminPending.length !== 1 ? "s" : ""} pending review.`)}`;
+                ${alertBoxHTML("info", `${AdminState.adminPending.length} application${AdminState.adminPending.length !== 1 ? "s" : ""} pending review.`)}
+                <div id="admin-analytics" style="margin-top:8px"></div>`;
+            // Async: load Chart.js (once) and analytics data, then render charts
+            renderAnalyticsDashboard();
         } catch (ex) {
             body.innerHTML = alertBoxHTML("err", "Failed to load stats: " + ex.message);
         }
@@ -167,9 +171,26 @@ async function renderAdminTab(tab) {
                 renderEmpty(body, "&#x2705;", "All caught up! No pending applications.");
                 return;
             }
-            body.innerHTML = AdminState.adminPending.map(p => `
+            body.innerHTML = `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+                    <label class="checkbox-row" style="cursor:pointer;background:var(--sf2);padding:8px 12px;border-radius:9px;margin:0">
+                        <input type="checkbox" id="pending-select-all" style="width:16px;height:16px;margin-right:8px;accent-color:var(--or);cursor:pointer"
+                            onchange="pendingToggleSelectAll(this.checked)" />
+                        <span class="checkbox-lbl" style="font-size:13px;font-weight:600">Select all</span>
+                    </label>
+                    <button id="pending-bulk-approve"
+                        class="btn btn-success btn-small btn-w-auto"
+                        style="padding:8px 14px;font-size:12px;display:none"
+                        onclick="pendingBulkApprove()">
+                        &#x2705; Approve Selected (<span id="pending-sel-count">0</span>)
+                    </button>
+                </div>
+                ${AdminState.adminPending.map(p => `
                 <div class="card" style="margin-bottom:11px" id="pending-card-${p.id}">
                     <div style="display:flex;gap:11px;align-items:center;margin-bottom:11px">
+                        <input type="checkbox" class="pending-chk" data-id="${p.id}"
+                            style="width:18px;height:18px;accent-color:var(--or);cursor:pointer"
+                            onchange="pendingUpdateSelCount()" />
                         <div style="width:44px;height:44px;background:var(--or-p);border-radius:11px;
                                     display:flex;align-items:center;justify-content:center;font-size:22px">
                             ${AFP.spIco(p.species)}
@@ -188,7 +209,7 @@ async function renderAdminTab(tab) {
                         <button id="approve-btn-${p.id}" class="btn btn-success btn-small" onclick="adminApprove(${p.id})">&#x2705; Approve</button>
                         <button id="reject-btn-${p.id}"  class="btn btn-danger  btn-small" onclick="adminReject(${p.id})">&#x274C; Reject</button>
                     </div>
-                </div>`).join("");
+                </div>`).join("")}`;
         } catch (ex) {
             body.innerHTML = alertBoxHTML("err", "Failed to load pending: " + ex.message);
         }
@@ -227,6 +248,9 @@ async function renderAdminTab(tab) {
     } else if (tab === "analytics") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await renderAnalyticsDashboard(body);
+    } else if (tab === "logs") {
+        if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
+        await AuditLogs.loadLogs(body);
     }
 }
 
@@ -252,6 +276,153 @@ async function adminReject(id) {
         await renderAdminTab("pending");
     } catch (ex) { AFP.tst("Failed: " + ex.message); }
     finally { if (btn) btn.classList.remove("loading"); }
+}
+
+// ?? Pending bulk approve helpers ?????????????????????????????????????????????
+function pendingUpdateSelCount() {
+    const boxes = document.querySelectorAll(".pending-chk");
+    const sel   = Array.from(boxes).filter(b => b.checked).length;
+    const cnt   = document.getElementById("pending-sel-count");
+    const btn   = document.getElementById("pending-bulk-approve");
+    if (cnt) cnt.textContent = sel;
+    if (btn) btn.style.display = sel > 0 ? "" : "none";
+    const all = document.getElementById("pending-select-all");
+    if (all) all.checked = (sel > 0 && sel === boxes.length);
+}
+function pendingToggleSelectAll(checked) {
+    document.querySelectorAll(".pending-chk").forEach(b => { b.checked = !!checked; });
+    pendingUpdateSelCount();
+}
+async function pendingBulkApprove() {
+    const ids = Array.from(document.querySelectorAll(".pending-chk"))
+        .filter(b => b.checked).map(b => +b.dataset.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Approve ${ids.length} pet${ids.length === 1 ? "" : "s"}?`)) return;
+    const btn = document.getElementById("pending-bulk-approve");
+    if (btn) btn.classList.add("loading");
+    try {
+        const res = await AFP.POST("/api/pets/bulk-approve", { ids, note: "Bulk approved" });
+        AFP.tst(`Approved ${res.approved || 0} of ${res.requested || ids.length}.`);
+        AdminState.adminStats = null;
+        await renderAdminTab("pending");
+    } catch (ex) {
+        AFP.tst("Bulk approve failed: " + ex.message);
+        if (btn) btn.classList.remove("loading");
+    }
+}
+
+// ?? Billing CSV export ???????????????????????????????????????????????????????
+function exportBillingCSV() {
+    if (!AdminState.lastBilling) { AFP.tst("No billing data to export."); return; }
+    const { data, from, to, groupBy } = AdminState.lastBilling;
+    const { rows = [], summary = {} } = data;
+    const grpLabel = { ward:"Ward", zone:"Zone", nigam:"Nigam", city:"City" }[groupBy] || "Group";
+    const showCity = groupBy !== "city";
+    const q = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [grpLabel, ...(showCity ? ["City"] : []), "Total", "Approved", "Pending", "Estimated Revenue (INR)"];
+    const lines  = [header.join(",")];
+    rows.forEach(r => {
+        const cells = [
+            r.group_label || "",
+            ...(showCity ? [r.city_name || ""] : []),
+            r.total || 0, r.approved || 0, r.pending || 0, Number(r.estimated_revenue || 0),
+        ];
+        lines.push(cells.map(q).join(","));
+    });
+    lines.push("");
+    lines.push([`TOTAL`, ...(showCity ? [""] : []),
+        summary.total || 0, summary.approved || 0, summary.pending || 0, Number(summary.revenue || 0),
+    ].map(q).join(","));
+    const csv  = "\uFEFF" + lines.join("\r\n"); // BOM for Excel
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `billing-${from}_to_${to}-${groupBy}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    AFP.tst("CSV exported.");
+}
+
+// ?? Global search ?????????????????????????????????????????????????????????????
+let _globalSearchTimer = null;
+function openGlobalSearch() {
+    const modal = document.getElementById("gs-modal");
+    if (!modal) return;
+    const inp = document.getElementById("gs-input");
+    const res = document.getElementById("gs-results");
+    if (inp) inp.value = "";
+    if (res) res.innerHTML = `<div style="text-align:center;color:var(--tx3);padding:20px;font-size:13px">Type 2+ characters to search across users, pets, doctors and shops.</div>`;
+    modal.style.display = "flex";
+    setTimeout(() => inp?.focus(), 50);
+}
+function closeGlobalSearch() {
+    const modal = document.getElementById("gs-modal");
+    if (modal) modal.style.display = "none";
+}
+function globalSearchOnInput(val) {
+    clearTimeout(_globalSearchTimer);
+    _globalSearchTimer = setTimeout(() => _runGlobalSearch(val), 300);
+}
+async function _runGlobalSearch(q) {
+    const res = document.getElementById("gs-results");
+    if (!res) return;
+    q = (q || "").trim();
+    if (q.length < 2) {
+        res.innerHTML = `<div style="text-align:center;color:var(--tx3);padding:20px;font-size:13px">Type 2+ characters to search across users, pets, doctors and shops.</div>`;
+        return;
+    }
+    renderLoading(res);
+    try {
+        const data = await AFP.GET(`/api/admin/search?q=${encodeURIComponent(q)}&limit=6`);
+        const section = (title, icon, rows, renderRow, emptyMsg) => {
+            const inner = (rows && rows.length)
+                ? rows.map(renderRow).join("")
+                : `<div style="font-size:12px;color:var(--tx3);padding:6px 10px">${escHtml(emptyMsg)}</div>`;
+            return `
+                <div style="margin-bottom:14px">
+                    <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;
+                                letter-spacing:.5px;padding:0 4px;margin-bottom:6px">
+                        ${icon} ${escHtml(title)} <span style="color:var(--tx3)">(${rows?.length || 0})</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px">${inner}</div>
+                </div>`;
+        };
+        const row = (icon, title, subtitle) => `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--sf2);border-radius:8px">
+                <div style="font-size:18px;flex-shrink:0">${icon}</div>
+                <div style="min-width:0;flex:1">
+                    <div style="font-size:13px;font-weight:600;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${title}</div>
+                    <div style="font-size:11px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${subtitle}</div>
+                </div>
+            </div>`;
+        res.innerHTML =
+            section("Users", "&#x1F464;", data.users, u => row(
+                "&#x1F464;",
+                `${escHtml(u.name || "")} <span style="font-size:10px;color:var(--tx3);font-weight:400;text-transform:uppercase">${escHtml((u.role || "").replace("_", " "))}</span>`,
+                `${escHtml(u.mobile || "")}${u.email ? " &middot; " + escHtml(u.email) : ""}`,
+            ), "No matching users.") +
+            section("Pets", "&#x1F43E;", data.pets, p => row(
+                AFP.spIco(p.species),
+                `${escHtml(p.name || "")} <span style="font-size:10px;color:var(--tx3);font-family:monospace">${escHtml(p.pet_id || "")}</span>`,
+                `${escHtml(p.owner_name || "\u2014")} &middot; ${escHtml(p.registration_status || "")}`,
+            ), "No matching pets.") +
+            section("Doctors", "&#x1F468;&#x200D;&#x2695;&#xFE0F;", data.doctors, d => row(
+                "&#x1FA7A;",
+                escHtml(d.name || ""),
+                `${escHtml(d.clinic_name || "")}${d.mobile ? " &middot; " + escHtml(d.mobile) : ""}`,
+            ), "No matching doctors.") +
+            section("Shops", "&#x1F6D2;", data.shops, s => row(
+                "&#x1F6D2;",
+                escHtml(s.name || ""),
+                `${escHtml(s.owner_name || "")}${s.mobile ? " &middot; " + escHtml(s.mobile) : ""}`,
+            ), "No matching shops.");
+    } catch (ex) {
+        res.innerHTML = alertBoxHTML("err", "Search failed: " + ex.message);
+    }
 }
 
 // ?? Reports ???????????????????????????????????????????????????????????????????
@@ -638,7 +809,9 @@ async function loadBillingReport() {
                 </table>
             </div>
             <button class="btn btn-outline" style="width:auto;padding:10px 20px"
-                onclick="printBillingInvoice()">&#x1F5A8;&#xFE0F; Print / Export Invoice</button>`;
+                onclick="printBillingInvoice()">&#x1F5A8;&#xFE0F; Print / Export Invoice</button>
+            <button class="btn btn-ghost" style="width:auto;padding:10px 20px;margin-left:8px"
+                onclick="exportBillingCSV()">&#x1F4C4; Export CSV</button>`;
     } catch (ex) {
         resultEl.innerHTML = alertBoxHTML("err", "Failed to load billing data: " + ex.message);
     }
@@ -803,7 +976,8 @@ async function renderGeoView(container) {
                                 </div>
                             </div>
                             ${badgeHTML(c.is_active ? "Active" : "Inactive", c.is_active ? "ok" : "rj")}
-                            <button class="icon-btn" style="background:var(--bl-p)" onclick='openGeoModal("editCity",${c.id})'>&#x270F;&#xFE0F;</button>
+                            <button class="icon-btn" style="background:var(--bl-p)" title="Edit" onclick='openGeoModal("editCity",${c.id})'>&#x270F;&#xFE0F;</button>
+                            ${geoActionButtons("city", c, "name")}
                         </div>
                         <button style="background:none;border:none;margin-top:10px;font-size:12px;color:var(--or);font-weight:600;cursor:pointer;padding:0"
                             onclick="geoOpenCity(${c.id})">View nigams &#8594;</button>
@@ -831,7 +1005,8 @@ async function renderGeoView(container) {
                                 </div>
                             </div>
                             ${badgeHTML(n.is_active ? "Active" : "Inactive", n.is_active ? "ok" : "rj")}
-                            <button class="icon-btn" style="background:var(--bl-p)" onclick='openGeoModal("editNigam",${n.id})'>&#x270F;&#xFE0F;</button>
+                            <button class="icon-btn" style="background:var(--bl-p)" title="Edit" onclick='openGeoModal("editNigam",${n.id})'>&#x270F;&#xFE0F;</button>
+                            ${geoActionButtons("nigam", n, "name")}
                         </div>
                         <button style="background:none;border:none;margin-top:8px;font-size:12px;color:var(--or);font-weight:600;cursor:pointer;padding:0"
                             onclick="geoOpenNigam(${n.id})">View zones &#8594;</button>
@@ -854,7 +1029,8 @@ async function renderGeoView(container) {
                                 <div style="font-size:11px;color:var(--tx3);margin-top:3px">${z.ward_count||0} wards &middot; ${z.pet_count||0} pets</div>
                             </div>
                             ${badgeHTML(z.is_active ? "Active" : "Inactive", z.is_active ? "ok" : "rj")}
-                            <button class="icon-btn" style="background:var(--bl-p)" onclick='openGeoModal("editZone",${z.id})'>&#x270F;&#xFE0F;</button>
+                            <button class="icon-btn" style="background:var(--bl-p)" title="Edit" onclick='openGeoModal("editZone",${z.id})'>&#x270F;&#xFE0F;</button>
+                            ${geoActionButtons("zone", z, "name")}
                         </div>
                         <button style="background:none;border:none;margin-top:8px;font-size:12px;color:var(--or);font-weight:600;cursor:pointer;padding:0"
                             onclick="geoOpenZone(${z.id})">View wards &#8594;</button>
@@ -876,9 +1052,60 @@ async function renderGeoView(container) {
                             <div style="font-size:11px;color:var(--tx3);margin-top:2px">${w.pet_count||0} pets</div>
                         </div>
                         ${badgeHTML(w.is_active ? "Active" : "Inactive", w.is_active ? "ok" : "rj")}
-                        <button class="icon-btn" style="background:var(--bl-p)" onclick='openGeoModal("editWard",${w.id})'>&#x270F;&#xFE0F;</button>
+                        <button class="icon-btn" style="background:var(--bl-p)" title="Edit" onclick='openGeoModal("editWard",${w.id})'>&#x270F;&#xFE0F;</button>
+                        ${geoActionButtons("ward", w, "ward_number")}
                     </div>`).join("")}`;
     }
+}
+
+// ?? Enable/Disable + Delete helpers ??????????????????????????????????????????
+async function geoToggleActive(kind, id, nextActive) {
+    const map = {
+        city:  { url: `/api/geo/cities/${id}`,  body: { is_active: nextActive } },
+        nigam: { url: `/api/geo/nigams/${id}`,  body: { is_active: nextActive } },
+        zone:  { url: `/api/geo/zones/${id}`,   body: { is_active: nextActive } },
+        ward:  { url: `/api/geo/wards/${id}`,   body: { is_active: nextActive } },
+    }[kind];
+    if (!map) return;
+    try {
+        await AFP.PUT(map.url, map.body);
+        AFP.tst(nextActive ? "Enabled." : "Disabled.");
+        await renderGeoView();
+    } catch (ex) { AFP.tst("Failed: " + ex.message); }
+}
+
+async function geoDelete(kind, id, name) {
+    const label = { city:"city", nigam:"nigam", zone:"zone", ward:"ward" }[kind] || kind;
+    if (!confirm(`Delete this ${label} \u2014 "${name}"?\n\nThis is permanent and will fail if it still contains child records.`)) return;
+    const url = {
+        city:  `/api/geo/cities/${id}`,
+        nigam: `/api/geo/nigams/${id}`,
+        zone:  `/api/geo/zones/${id}`,
+        ward:  `/api/geo/wards/${id}`,
+    }[kind];
+    try {
+        await AFP.DELETE(url);
+        AFP.tst(`${label[0].toUpperCase()+label.slice(1)} deleted.`);
+        await renderGeoView();
+    } catch (ex) {
+        AFP.tst("Delete failed: " + (ex.message || "It may still contain child records."));
+    }
+}
+
+function geoActionButtons(kind, item, nameField) {
+const name = escHtml((item[nameField] || "").replace(/"/g, "'"));
+// Normalise is_active — DB may return boolean, 0/1, or "0"/"1" via the MySQL shim.
+const active = !!item.is_active && item.is_active !== 0 && item.is_active !== "0";
+    return `
+        <button class="icon-btn" style="background:${active ? "var(--wn-p, #FEF3C7)" : "var(--ok-p)"}"
+            title="${active ? "Disable" : "Enable"}"
+            onclick="geoToggleActive('${kind}',${item.id},${!active})">
+            ${active ? "&#x1F6AB;" : "&#x2705;"}
+        </button>
+        <button class="icon-btn" style="background:var(--er-p)" title="Delete"
+            onclick="geoDelete('${kind}',${item.id},'${name}')">
+            &#x1F5D1;&#xFE0F;
+        </button>`;
 }
 
 async function geoOpenCity(id)  { AdminState.selCity  = AdminState.geoCities.find(c => c.id === id); AdminState.selNigam = null; AdminState.selZone = null; AdminState.geoView = "nigams"; await renderGeoView(); }
@@ -1020,6 +1247,82 @@ function closeGeoModal() {
     document.getElementById("geo-modal").style.display = "none";
 }
 
+// ?? Staff / citizen self-profile modal ??????????????????????????????????????
+async function openStaffProfile() {
+    const modal = document.getElementById("sp-modal");
+    if (!modal) return;
+    const errEl = document.getElementById("sp-err");
+    if (errEl) errEl.innerHTML = "";
+    // Reset password fields
+    ["sp-cur-pw", "sp-new-pw"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = ""; el.style.borderColor = ""; el.style.background = ""; }
+    });
+    modal.style.display = "flex";
+    // Prefill from server (or fallback to cached user)
+    try {
+        const me = await AFP.GET("/api/auth/me");
+        AFP.setUser(me);
+        _fillStaffProfile(me);
+    } catch {
+        const u = AFP.getUser() || {};
+        _fillStaffProfile(u);
+    }
+}
+
+function _fillStaffProfile(u) {
+    const info = document.getElementById("sp-info");
+    if (info) {
+        const parts = [];
+        if (u.role)         parts.push(`<strong>${escHtml((u.role || "").replace("_", " "))}</strong>`);
+        if (u.city_name)    parts.push(`&#x1F3D9;&#xFE0F; ${escHtml(u.city_name)}`);
+        if (u.nigam_name)   parts.push(`&#x1F3DB;&#xFE0F; ${escHtml(u.nigam_name)}`);
+        if (u.zone_name)    parts.push(`&#x1F5FA;&#xFE0F; ${escHtml(u.zone_name)}`);
+        if (u.ward_number)  parts.push(`&#x1F4CD; ${escHtml(u.ward_number)}`);
+        info.innerHTML = parts.join(" &middot; ") || "Signed in";
+    }
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
+    set("sp-name",    u.name);
+    set("sp-mobile",  u.mobile);
+    set("sp-email",   u.email);
+    set("sp-address", u.address);
+}
+
+function closeStaffProfile() {
+    const modal = document.getElementById("sp-modal");
+    if (modal) modal.style.display = "none";
+}
+
+async function saveStaffProfile() {
+    const btn   = document.getElementById("sp-save-btn");
+    const errEl = document.getElementById("sp-err");
+    if (errEl) errEl.innerHTML = "";
+    const name    = document.getElementById("sp-name")?.value.trim()    || "";
+    const mobile  = document.getElementById("sp-mobile")?.value.trim()  || "";
+    const email   = document.getElementById("sp-email")?.value.trim()   || "";
+    const address = document.getElementById("sp-address")?.value.trim() || "";
+    const curPw   = document.getElementById("sp-cur-pw")?.value || "";
+    const newPw   = document.getElementById("sp-new-pw")?.value || "";
+    if (!name) { errEl.innerHTML = alertBoxHTML("err", "Name is required."); return; }
+    if (!/^[6-9]\d{9}$/.test(mobile)) { errEl.innerHTML = alertBoxHTML("err", "Enter a valid 10-digit mobile number."); return; }
+    if (newPw && !curPw) { errEl.innerHTML = alertBoxHTML("err", "Enter your current password to set a new one."); return; }
+    if (newPw && !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(newPw)) {
+        errEl.innerHTML = alertBoxHTML("err", "New password must be at least 8 characters and include at least one letter and one digit.");
+        return;
+    }
+    const payload = { name, mobile, email, address };
+    if (newPw) { payload.currentPassword = curPw; payload.newPassword = newPw; }
+    if (btn) { btn.classList.add("loading"); btn.disabled = true; }
+    try {
+        const updated = await AFP.PUT("/api/auth/me", payload);
+        AFP.setUser(updated);
+        AFP.tst("Profile updated.");
+        closeStaffProfile();
+    } catch (ex) {
+        errEl.innerHTML = alertBoxHTML("err", ex.message || "Failed to save profile.");
+    } finally { if (btn) { btn.classList.remove("loading"); btn.disabled = false; } }
+}
+
 // ?? Legacy doctor/shop form helpers (fallback; primary rendering via DoctorMgmt/ShopMgmt) ??
 function renderAddDoctorForm(container) {
     container.innerHTML = `
@@ -1098,4 +1401,133 @@ function renderAddShopForm(container) {
         }catch(ex){document.getElementById("addshop-err").innerHTML=alertBoxHTML("err",ex.message);}
         finally{btn.classList.remove("loading");}
     });
+}
+
+
+// ?? Analytics dashboard (Overview tab) ?????????????????????????????????????
+// Uses Chart.js loaded on-demand from a CDN. Draws a YoY revenue line chart
+// and a city-trend stacked bar chart into the #admin-analytics container.
+let _chartJsLoading = null;
+function _loadChartJs() {
+    if (window.Chart) return Promise.resolve();
+    if (_chartJsLoading) return _chartJsLoading;
+    _chartJsLoading = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src   = "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
+        s.onload  = () => resolve();
+        s.onerror = () => reject(new Error("Failed to load Chart.js"));
+        document.head.appendChild(s);
+    });
+    return _chartJsLoading;
+}
+
+async function renderAnalyticsDashboard(container) {
+const el = container || document.getElementById("admin-analytics");
+if (!el) return;
+    el.innerHTML = `
+        <div style="font-size:15px;font-weight:700;margin:14px 0 8px">&#x1F4CA; Analytics</div>
+        <div class="card"><div style="text-align:center;color:var(--tx2);font-size:12px;padding:16px">Loading analytics…</div></div>`;
+    try {
+        const [data] = await Promise.all([AFP.GET("/api/admin/analytics"), _loadChartJs()]);
+        el.innerHTML = `
+            <div style="font-size:15px;font-weight:700;margin:14px 0 8px">&#x1F4CA; Analytics</div>
+            <div class="card">
+                <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">
+                    Year-over-Year Revenue (\u20B9${data.licenceFee}/licence)
+                </div>
+                <div style="position:relative;height:220px"><canvas id="chart-yoy"></canvas></div>
+            </div>
+            <div class="card">
+                <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">
+                    City-wise Registrations (last 12 months)
+                </div>
+                <div style="position:relative;height:240px"><canvas id="chart-city"></canvas></div>
+            </div>
+            <div class="card">
+                <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">
+                    Species Mix (approved)
+                </div>
+                <div style="position:relative;height:240px"><canvas id="chart-species"></canvas></div>
+            </div>
+            ${data.pendingByWard && data.pendingByWard.length ? `
+            <div class="card">
+                <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">
+                    Pending by Ward (top 10)
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+                    ${data.pendingByWard.map(r => `
+                        <div style="display:flex;justify-content:space-between">
+                            <span>${escHtml(r.ward || "—")} · <span style="color:var(--tx3);font-size:11px">${escHtml(r.city || "")}</span></span>
+                            <span style="font-weight:700">${r.pending}</span>
+                        </div>`).join("")}
+                </div>
+            </div>` : ""}`;
+
+        // YoY revenue: two datasets (this year vs previous year)
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const thisYear = new Date().getFullYear();
+        const prevYear = thisYear - 1;
+        const seed = (yr) => Array(12).fill(0).map((_, i) => {
+            const row = (data.yoyRevenue || []).find(r => r.year === yr && r.month === i + 1);
+            return row ? +row.revenue : 0;
+        });
+        new Chart(document.getElementById("chart-yoy"), {
+            type: "line",
+            data: {
+                labels: months,
+                datasets: [
+                    { label: `${thisYear}`, data: seed(thisYear), borderColor: "#E8670A", backgroundColor: "rgba(232,103,10,.2)", tension: 0.3, fill: true },
+                    { label: `${prevYear}`, data: seed(prevYear), borderColor: "#5A564F", backgroundColor: "rgba(90,86,79,.1)",  tension: 0.3, fill: false, borderDash: [4, 4] },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } },
+                scales:  { y: { beginAtZero: true, ticks: { callback: v => "\u20B9" + v } } },
+            },
+        });
+
+        // City trend: group by city; stack months
+        const cityMap = {};
+        (data.cityTrends || []).forEach(r => {
+            cityMap[r.city || "—"] = cityMap[r.city || "—"] || {};
+            cityMap[r.city || "—"][r.month] = r.count;
+        });
+        const monthLabels = [...new Set((data.cityTrends || []).map(r => r.month))].sort();
+        const palette = ["#E8670A", "#1E6FD9", "#16A34A", "#D97706", "#9333EA", "#DC2626"];
+        const cityDatasets = Object.keys(cityMap).map((city, i) => ({
+            label: city,
+            data:  monthLabels.map(m => cityMap[city][m] || 0),
+            backgroundColor: palette[i % palette.length],
+        }));
+        new Chart(document.getElementById("chart-city"), {
+            type: "bar",
+            data: { labels: monthLabels, datasets: cityDatasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } },
+                scales:  { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+            },
+        });
+
+        // Species mix
+        const sp = data.speciesMix || { dog: 0, cat: 0, other: 0 };
+        new Chart(document.getElementById("chart-species"), {
+            type: "doughnut",
+            data: {
+                labels: ["\uD83D\uDC36 Dogs", "\uD83D\uDC31 Cats", "\uD83D\uDC3E Others"],
+                datasets: [{
+                    data: [sp.dog || 0, sp.cat || 0, sp.other || 0],
+                    backgroundColor: ["#E8670A", "#1E6FD9", "#16A34A"],
+                }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } },
+            },
+        });
+    } catch (ex) {
+        el.innerHTML = `<div style="font-size:15px;font-weight:700;margin:14px 0 8px">&#x1F4CA; Analytics</div>` +
+                       alertBoxHTML("err", "Failed to load analytics: " + (ex.message || ex));
+    }
 }

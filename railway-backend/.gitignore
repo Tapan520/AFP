@@ -1,3 +1,14 @@
 node_modules/
 .env
 *.log
+
+# Env & backups (added for env separation + backups feature)
+.env
+.env.development
+.env.production
+.env.local
+railway-backend/.env
+railway-backend/.env.development
+railway-backend/.env.production
+railway-backend/backups/
+

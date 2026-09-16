@@ -8,7 +8,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Npgsql" Version="7.0.7" />
+    <PackageReference Include="MySqlConnector" Version="2.3.7" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <!-- QuestPDF: pet-licence PDF generation (Community licence — free for non-commercial and small orgs) -->
+    <PackageReference Include="QuestPDF" Version="2024.7.3" />
+    <!-- QRCoder: server-side QR PNG generation for licence PDFs -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="AFP.Tests\**" />
+    <Content Remove="AFP.Tests\**" />
+    <EmbeddedResource Remove="AFP.Tests\**" />
+    <None Remove="AFP.Tests\**" />
   </ItemGroup>
 
 </Project>

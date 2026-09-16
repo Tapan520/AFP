@@ -1,4 +1,4 @@
-﻿// ?????????????????????????????????????????????????????????????????????????????
+// ?????????????????????????????????????????????????????????????????????????????
 // routes/pets.js
 //
 // GET  /api/pets/my          - citizen's own pets
@@ -21,20 +21,21 @@ const path     = require("path");
 const fs       = require("fs");
 const pool     = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
+const { getStorage } = require("../storage");
 
-const router = express.Router();
+const router  = express.Router();
+const storage = getStorage();
 
-// Disk storage — files saved to ./uploads/pets/ and served via express.static.
-// Swap for cloud storage (S3, GCS, Cloudinary) when deploying to production.
-const UPLOAD_DIR = path.join(__dirname, "../uploads/pets");
+// ── Multer with in-memory storage ─────────────────────────────────────────
+// Files are buffered in RAM (up to 5 MB) and then handed to the storage
+// provider (local disk / S3 / Azure / Cloudinary) via storage.put().
+// The old on-disk multer setup is kept below (commented) for reference.
+const UPLOAD_DIR = path.join(__dirname, "../uploads/pets"); // used only for local provider fallback
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const photoUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-    filename:    (req, _file, cb) => cb(null, `${req.params.id}-photo.jpg`),
-  }),
-  limits:     { fileSize: 5 * 1024 * 1024 },
+  storage:  multer.memoryStorage(),
+  limits:   { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.mimetype);
     cb(ok ? null : new Error("Only image files are allowed for pet photos."), ok);
@@ -42,14 +43,8 @@ const photoUpload = multer({
 });
 
 const certUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-    filename:    (req, file, cb) => {
-      const ext = file.mimetype === "application/pdf" ? ".pdf" : ".jpg";
-      cb(null, `${req.params.id}-cert${ext}`);
-    },
-  }),
-  limits:     { fileSize: 5 * 1024 * 1024 },
+  storage:  multer.memoryStorage(),
+  limits:   { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"].includes(file.mimetype);
     cb(ok ? null : new Error("Only image or PDF files are allowed."), ok);
@@ -235,6 +230,40 @@ router.get("/breeding", async (req, res) => {
   }
 });
 
+// ?? GET /api/pets/public/:petId ??????????????????????????????????????????????
+// Public, read-only pet profile — powers the QR deep-link. Returns a slim
+// subset of fields (no owner mobile/email) and only for approved pets.
+// The QR encodes a URL like:  https://<host>/PetProfile?id=<petId>
+// which resolves to the Razor page that calls this endpoint.
+router.get("/public/:petId", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `${PET_SELECT} WHERE p.pet_id = $1 AND p.registration_status = 'approved' LIMIT 1`,
+      [req.params.petId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Pet not found or not yet approved." });
+    const p = rows[0];
+    res.json({
+      pet_id:              p.pet_id,
+      name:                p.name,
+      species:             p.species,
+      breed:               p.breed,
+      colour:              p.colour,
+      gender:              p.gender,
+      date_of_birth:       p.date_of_birth,
+      photo_url:           p.photo_url,
+      owner_name:          p.owner_name,
+      city_name:           p.city_name,
+      nigam_name:          p.nigam_name,
+      ward_number:         p.ward_number,
+      licence_expiry_date: p.licence_expiry_date,
+      licence_status:      p.licence_status,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ?? GET /api/pets/:id ?????????????????????????????????????????????????????????
 router.get("/:id", authenticate, async (req, res) => {
   try {
@@ -291,6 +320,50 @@ router.post("/", authenticate, async (req, res) => {
   } catch (err) {
     console.error("POST /pets error:", err.message);
     res.status(500).json({ error: "Failed to register pet." });
+  }
+});
+
+// ?? POST /api/pets/bulk-approve ??????????????????????????????????????????????
+// Body: { ids: [int, ...], note? }
+// Bulk approves many pending pets at once (ward_admin and above). The caller's
+// geo scope is enforced: pets outside their ward/nigam/city are skipped.
+router.post("/bulk-approve", authenticate, requireRole("ward_admin"), async (req, res) => {
+  const caller = req.user;
+  const { ids, note } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array." });
+  }
+  const nums = ids.map(x => parseInt(x, 10)).filter(Number.isInteger);
+  if (nums.length === 0) return res.status(400).json({ error: "No valid ids." });
+
+  const scopeWhere = [];
+  const scopeParams = [];
+  if (caller.role === "ward_admin" && caller.ward_id) {
+    scopeParams.push(caller.ward_id); scopeWhere.push(`ward_id = $${scopeParams.length}`);
+  } else if (caller.role === "nigam_admin" && caller.nigam_id) {
+    scopeParams.push(caller.nigam_id); scopeWhere.push(`nigam_id = $${scopeParams.length}`);
+  } else if (caller.role === "city_admin" && caller.city_id) {
+    scopeParams.push(caller.city_id); scopeWhere.push(`city_id = $${scopeParams.length}`);
+  }
+  const scopeSQL = scopeWhere.length ? ` AND ${scopeWhere.join(" AND ")}` : "";
+
+  try {
+    const idParams = nums.map((_, i) => `$${scopeParams.length + 2 + i}`).join(",");
+    const params   = [note || null, ...scopeParams, ...nums];
+    const { rowCount } = await pool.query(
+      `UPDATE pets
+         SET registration_status = 'approved',
+             admin_note          = COALESCE($1, admin_note),
+             updated_at          = NOW()
+       WHERE registration_status = 'pending'
+         AND id IN (${idParams})
+         ${scopeSQL}`,
+      params
+    );
+    return res.json({ approved: rowCount || 0, requested: nums.length });
+  } catch (err) {
+    console.error("POST /pets/bulk-approve error:", err.message);
+    return res.status(500).json({ error: "Bulk approve failed." });
   }
 });
 
@@ -395,7 +468,8 @@ router.patch("/:id/vaccine", authenticate, async (req, res) => {
 router.post("/:id/upload-photo", authenticate, photoUpload.single("photo"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No photo file received." });
-    const url = `/uploads/pets/${req.file.filename}`;
+    const key = `pets/${req.params.id}-photo.jpg`;
+    const { url } = await storage.put(key, req.file.buffer, req.file.mimetype);
     await pool.query(
       "UPDATE pets SET photo_url=$1, updated_at=NOW() WHERE id=$2",
       [url, req.params.id]
@@ -410,7 +484,9 @@ router.post("/:id/upload-photo", authenticate, photoUpload.single("photo"), asyn
 router.post("/:id/upload-certificate", authenticate, certUpload.single("certificate"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No certificate file received." });
-    const url = `/uploads/pets/${req.file.filename}`;
+    const ext = req.file.mimetype === "application/pdf" ? ".pdf" : ".jpg";
+    const key = `pets/${req.params.id}-cert${ext}`;
+    const { url } = await storage.put(key, req.file.buffer, req.file.mimetype);
     await pool.query(
       "UPDATE pets SET certificate_url=$1, updated_at=NOW() WHERE id=$2",
       [url, req.params.id]
@@ -420,5 +496,100 @@ router.post("/:id/upload-certificate", authenticate, certUpload.single("certific
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Pre-signed direct-to-cloud uploads (mobile-friendly) ──────────────────────
+// Flow:
+//   1. Client POSTs /upload-photo/sign with { mimeType } and gets back a
+//      pre-signed PUT URL from the storage provider (S3 / Azure / Cloudinary).
+//   2. Client uploads the binary DIRECTLY to that URL — the API server never
+//      sees the file, saving Railway CPU + egress and dramatically speeding
+//      up mobile uploads on cellular.
+//   3. Client POSTs /upload-photo/confirm with { key } so we persist the
+//      resulting photo_url in the DB (with ownership check).
+//
+// The old multer-based routes above still work for the web UI so we can roll
+// out the mobile flow incrementally.
+async function assertPetOwnershipOrAdmin(petId, caller) {
+  const { rows } = await pool.query(
+    "SELECT owner_id, city_id, ward_id, nigam_id FROM pets WHERE id = $1", [petId]
+  );
+  if (!rows.length) return { error: 404, message: "Pet not found." };
+  const p = rows[0];
+  if (caller.role === "super_admin") return { pet: p };
+  if (caller.role === "citizen"  && p.owner_id === caller.id) return { pet: p };
+  if (caller.role === "ward_admin"  && caller.ward_id  && p.ward_id  === caller.ward_id)  return { pet: p };
+  if (caller.role === "nigam_admin" && caller.nigam_id && p.nigam_id === caller.nigam_id) return { pet: p };
+  if (caller.role === "city_admin"  && caller.city_id  && p.city_id  === caller.city_id)  return { pet: p };
+  return { error: 403, message: "Access denied." };
+}
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB hard cap for mobile uploads
+const ALLOWED_PHOTO_MIME = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_CERT_MIME  = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
+
+async function handlePresign(req, res, kind) {
+  const petId    = parseInt(req.params.id, 10);
+  const mimeType = (req.body?.mimeType || req.query?.mimeType || "").toString();
+  if (!petId) return res.status(400).json({ error: "Invalid pet id." });
+  const guard = await assertPetOwnershipOrAdmin(petId, req.user);
+  if (guard.error) return res.status(guard.error).json({ error: guard.message });
+
+  const allowed = kind === "photo" ? ALLOWED_PHOTO_MIME : ALLOWED_CERT_MIME;
+  if (!allowed.has(mimeType)) {
+    return res.status(400).json({ error: `Unsupported content type '${mimeType}'.` });
+  }
+  const ext = mimeType === "application/pdf" ? ".pdf"
+            : mimeType === "image/png"       ? ".png"
+            : mimeType === "image/webp"      ? ".webp"
+            : mimeType === "image/gif"       ? ".gif"
+            :                                  ".jpg";
+  const key = `pets/${petId}-${kind}${ext}`;
+  try {
+    if (typeof storage.presignPut !== "function") {
+      return res.status(501).json({ error: "Presigned uploads not supported by this storage provider." });
+    }
+    const signed = await storage.presignPut(key, mimeType, 900);
+    return res.json({ ...signed, maxBytes: MAX_UPLOAD_BYTES });
+  } catch (err) {
+    console.error(`presign ${kind} error:`, err.message);
+    return res.status(500).json({ error: `Failed to sign upload: ${err.message}` });
+  }
+}
+
+async function handleConfirm(req, res, kind) {
+  const petId = parseInt(req.params.id, 10);
+  const key   = (req.body?.key || "").toString();
+  const url   = (req.body?.url || "").toString();  // for Cloudinary: pass the returned secure_url
+  if (!petId || !key) return res.status(400).json({ error: "petId and key are required." });
+  const guard = await assertPetOwnershipOrAdmin(petId, req.user);
+  if (guard.error) return res.status(guard.error).json({ error: guard.message });
+
+  // Bind key to this pet: no path traversal, and must match "pets/{id}-*".
+  const expectedPrefix = `pets/${petId}-${kind}`;
+  if (!key.startsWith(expectedPrefix) || key.includes("..") || key.includes("//")) {
+    return res.status(400).json({ error: "Key does not belong to this pet." });
+  }
+
+  // Cloudinary returns its own secure_url — trust the client-supplied url when
+  // provided AND the provider is cloudinary. Otherwise, resolve from the key.
+  const providerUrl = url || (storage.publicUrl ? storage.publicUrl(key) : null);
+  if (!providerUrl) return res.status(500).json({ error: "Could not resolve public URL for uploaded file." });
+
+  const column = kind === "photo" ? "photo_url" : "certificate_url";
+  try {
+    await pool.query(
+      `UPDATE pets SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
+      [providerUrl, petId]
+    );
+    return res.json({ message: `${kind} saved.`, url: providerUrl });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+router.post("/:id/upload-photo/sign",         authenticate, (req, res) => handlePresign(req, res, "photo"));
+router.post("/:id/upload-photo/confirm",      authenticate, (req, res) => handleConfirm(req, res, "photo"));
+router.post("/:id/upload-certificate/sign",   authenticate, (req, res) => handlePresign(req, res, "cert"));
+router.post("/:id/upload-certificate/confirm",authenticate, (req, res) => handleConfirm(req, res, "cert"));
 
 module.exports = router;

@@ -1,0 +1,26 @@
+{
+  "appId":     "com.allforpets.municipal",
+  "appName":   "All For Pets",
+  "webDir":    "wwwroot",
+  "bundledWebRuntime": false,
+  "server": {
+    "url":            "https://afp.up.railway.app",
+    "cleartext":      false,
+    "androidScheme":  "https",
+    "iosScheme":      "https",
+    "allowNavigation": [
+      "afp.up.railway.app",
+      "checkout.razorpay.com",
+      "api.razorpay.com",
+      "*.qrserver.com",
+      "cdn.jsdelivr.net"
+    ]
+  },
+  "android": {
+    "backgroundColor": "#E8670A"
+  },
+  "ios": {
+    "backgroundColor": "#E8670A",
+    "contentInset":    "always"
+  }
+}

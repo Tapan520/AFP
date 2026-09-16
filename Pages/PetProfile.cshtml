@@ -1,0 +1,138 @@
+@page
+@model AFP.Pages.PetProfileModel
+@{
+    Layout = null;
+    var pet       = Model.Pet;
+    var petName   = pet?.Name ?? "Pet";
+    var petIdShow = pet?.PetId ?? Model.PetId;
+    var descr     = pet is null
+        ? $"Pet {Model.PetId} on the All For Pets Municipal Registry."
+        : $"{petName} ({pet.Species}{(!string.IsNullOrWhiteSpace(pet.Breed) ? ", " + pet.Breed : "")}) — a municipally-registered pet in {pet.CityName}. Owner: {pet.OwnerName}. Verified by All For Pets Municipal Registry.";
+    var canonical = $"{Request.Scheme}://{Request.Host}{Request.Path}?id={Uri.EscapeDataString(petIdShow)}";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@petName (@petIdShow) — Municipal Pet Registry | All For Pets</title>
+    <meta name="description" content="@descr" />
+    <link rel="canonical" href="@canonical" />
+    @if (Model.NotFound)
+    {
+        <meta name="robots" content="noindex,follow" />
+    }
+    else
+    {
+        <meta name="robots" content="index,follow" />
+    }
+
+    @* Open Graph / Twitter — nice previews when shared *@
+    <meta property="og:type"        content="profile" />
+    <meta property="og:title"       content="@petName (@petIdShow) — Municipal Pet Registry" />
+    <meta property="og:description" content="@descr" />
+    <meta property="og:url"         content="@canonical" />
+    @if (!string.IsNullOrEmpty(pet?.PhotoUrl))
+    {
+        <meta property="og:image" content="@pet.PhotoUrl" />
+        <meta name="twitter:card" content="summary_large_image" />
+    }
+    else
+    {
+        <meta name="twitter:card" content="summary" />
+    }
+    <meta name="twitter:title"       content="@petName (@petIdShow)" />
+    <meta name="twitter:description" content="@descr" />
+
+    @if (pet is not null)
+    {
+        <script type="application/ld+json">
+        {
+          "@@context": "https://schema.org",
+          "@@type": "ProfilePage",
+          "mainEntity": {
+            "@@type": "Pet",
+            "name": "@petName",
+            "identifier": "@petIdShow",
+            "species": "@pet.Species",
+            "breed": "@pet.Breed",
+            "gender": "@pet.Gender"@(string.IsNullOrEmpty(pet.PhotoUrl) ? "" : $",\n            \"image\": \"{pet.PhotoUrl}\"")
+          },
+          "provider": {
+            "@@type": "GovernmentOrganization",
+            "name": "@pet.NigamName",
+            "areaServed": "@pet.CityName"
+          }
+        }
+        </script>
+    }
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background:#F7F5F2; color:#1A1814; }
+        .wrap { max-width: 480px; margin: 0 auto; padding: 20px; }
+        .card { background:#fff; border-radius:16px; box-shadow:0 2px 10px rgba(0,0,0,.06); padding:22px; margin-top:20px; }
+        .hero { display:flex; align-items:center; gap:14px; }
+        .avatar { width:72px; height:72px; border-radius:16px; background:#FFF3E8; display:flex; align-items:center; justify-content:center; font-size:36px; border:2px solid #E5E0D8; }
+        .pname { font-size:22px; font-weight:700; margin:0; }
+        .pid { font-size:12px; color:#9A958C; font-family:monospace; margin-top:2px; }
+        .row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #E5E0D8; font-size:14px; }
+        .row:last-child { border-bottom:none; }
+        .row span:first-child { color:#5A564F; }
+        .row span:last-child { font-weight:600; }
+        .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600; background:#D1FAE5; color:#065F46; margin-top:6px; }
+        .brand { text-align:center; color:#5A564F; font-size:11px; margin-top:24px; }
+        img.photo { width:100%; max-height:280px; object-fit:cover; border-radius:12px; margin-top:14px; }
+        .err { color:#991B1B; }
+        a.cta { display:inline-block; margin-top:18px; padding:10px 16px; background:#E8670A; color:#fff; border-radius:10px; text-decoration:none; font-weight:600; font-size:14px; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            @if (Model.NotFound)
+            {
+                <div class="err">
+                    <h2>Pet Not Found</h2>
+                    <p>The pet ID <strong>@Model.PetId</strong> could not be located or has not yet been approved.</p>
+                    <a class="cta" href="/">Go to All For Pets</a>
+                </div>
+            }
+            else if (pet is not null)
+            {
+                <div class="hero">
+                    <div class="avatar">
+                        @(pet.Species switch {
+                            "dog"    => "🐶",
+                            "cat"    => "🐱",
+                            "rabbit" => "🐰",
+                            "bird"   => "🐦",
+                            _        => "🐾",
+                        })
+                    </div>
+                    <div>
+                        <h1 class="pname">@pet.Name</h1>
+                        <div class="pid">@pet.PetId</div>
+                        <span class="badge">✅ Municipal Verified</span>
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(pet.PhotoUrl))
+                {
+                    <img class="photo" src="@pet.PhotoUrl" alt="@pet.Name, a @pet.Breed @pet.Species registered in @pet.CityName" />
+                }
+                <div class="row"><span>Species</span><span>@pet.Species</span></div>
+                <div class="row"><span>Breed</span><span>@pet.Breed</span></div>
+                <div class="row"><span>Colour</span><span>@pet.Colour</span></div>
+                <div class="row"><span>Gender</span><span>@pet.Gender</span></div>
+                <div class="row"><span>Owner</span><span>@pet.OwnerName</span></div>
+                <div class="row"><span>Ward</span><span>@pet.WardNumber, @pet.CityName</span></div>
+                <div class="row"><span>Licence Valid Until</span><span>@(pet.LicenceExpiryDate?.ToString("dd MMM yyyy") ?? "—")</span></div>
+                <a class="cta" href="/">Register your own pet →</a>
+                <div class="brand">🐾 All For Pets — Municipal Pet Registry</div>
+            }
+            else
+            {
+                <p>Loading…</p>
+            }
+        </div>
+    </div>
+</body>
+</html>

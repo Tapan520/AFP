@@ -1,0 +1,48 @@
+# EditorConfig — https://editorconfig.org
+# Enforces consistent formatting for C#, JavaScript, JSON, Razor, and everything
+# else across the AFP monorepo (Razor Pages front-end + Node backend + tests).
+root = true
+
+# ?? Defaults for every file ?????????????????????????????????????????????????
+[*]
+charset                  = utf-8
+end_of_line              = lf
+indent_style             = space
+indent_size              = 4
+insert_final_newline     = true
+trim_trailing_whitespace = true
+max_line_length          = 120
+
+# ?? JavaScript / TypeScript / JSON — 2-space indent (industry norm) ?????????
+[*.{js,mjs,cjs,ts,tsx,jsx,json,jsonc}]
+indent_size = 2
+
+# ?? HTML / Razor / CSS — 4-space (matches existing wwwroot) ?????????????????
+[*.{cshtml,razor,html,htm,css,scss}]
+indent_size = 4
+
+# ?? Markdown — preserve trailing spaces (hard line breaks) ?????????????????
+[*.md]
+trim_trailing_whitespace = false
+
+# ?? Windows-style batch files must keep CRLF ???????????????????????????????
+[*.{cmd,bat,ps1}]
+end_of_line = crlf
+
+# ?? C# style rules (picked up by dotnet-format & Visual Studio) ????????????
+[*.{cs,csx,vb}]
+indent_size                                = 4
+csharp_new_line_before_open_brace          = all
+csharp_new_line_before_else                = true
+csharp_new_line_before_catch               = true
+csharp_new_line_before_finally             = true
+csharp_indent_case_contents                = true
+csharp_indent_switch_labels                = true
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_prefer_braces                       = true:suggestion
+csharp_style_var_when_type_is_apparent     = true:suggestion
+csharp_style_var_elsewhere                 = false:silent
+dotnet_sort_system_directives_first        = true
+dotnet_style_qualification_for_field       = false:silent
+dotnet_style_qualification_for_property    = false:silent
+dotnet_diagnostic.IDE0055.severity         = warning

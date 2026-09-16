@@ -405,38 +405,68 @@ async function saveVaccineNote() {
 function openQRModal() {
     const pet = PetState.currentPet;
     if (!pet) return;
-    const seed = (pet.pet_id || pet.name || "").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-    const SIZE = 11;
-    const grid = Array.from({ length: SIZE }, (_, r) =>
-        Array.from({ length: SIZE }, (_, c) => {
-            if ((r < 3 && c < 3) || (r < 3 && c > 7) || (r > 7 && c < 3)) return 1;
-            if ((r === 1 && c === 1) || (r === 1 && c === 9) || (r === 9 && c === 1)) return 0;
-            return ((seed + r * 17 + c * 13 + r * c) % 3) !== 0 ? 1 : 0;
-        }));
-    const qrRows = grid.map(row =>
-        `<div class="qr-row">${row.map(on =>
-            `<div class="qr-cell" style="background:${on ? "#1A1814" : "#fff"}"></div>`
-        ).join("")}</div>`
-    ).join("");
+
+    // Deep-link URL that the QR encodes. Scanning it opens the public pet
+    // profile page (works offline once printed and later scanned in-app too).
+    const deepLink = pet.pet_id
+        ? `${window.location.origin}/PetProfile?id=${encodeURIComponent(pet.pet_id)}`
+        : null;
+
+    const grid   = document.getElementById("qr-grid");
+    grid.innerHTML = "";
+    if (deepLink) {
+        // Use the standard QR generator on the Node backend if available;
+        // otherwise fall back to a free public QR image service.
+        const img = document.createElement("img");
+        img.alt   = "Pet QR code";
+        img.style.cssText = "width:180px;height:180px;display:block;";
+        img.src   = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(deepLink)}`;
+        grid.appendChild(img);
+    } else {
+        grid.innerHTML = `<div style="padding:40px;color:var(--tx3);font-size:12px">QR available after approval.</div>`;
+    }
+
     const details = [
         ["Pet ID",   pet.pet_id || "PENDING"],
         ["Name",     pet.name],
         ["Species",  `${pet.species} \u00B7 ${pet.breed}`],
         ["Owner",    pet.owner_name],
         ["Ward",     `${pet.ward_number}, ${pet.city_name}`],
-        ["Licence",  pet.licence_expiry_date ? `Valid until ${pet.licence_expiry_date}` : "Pending"],
+        ["Licence",  pet.licence_expiry_date ? `Valid until ${AFP.fmt(pet.licence_expiry_date)}` : "Pending"],
+        ["Scan URL", deepLink || "\u2014"],
     ].map(([l, v]) => `
-        <div style="display:flex;justify-content:space-between;padding:4px 0">
-            <span style="font-size:11px;color:var(--tx3);font-weight:600">${escHtml(l)}</span>
-            <span style="font-size:11px;color:var(--tx);font-weight:500;max-width:60%;text-align:right">${escHtml(v || "-")}</span>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;gap:8px">
+            <span style="font-size:11px;color:var(--tx3);font-weight:600;flex-shrink:0">${escHtml(l)}</span>
+            <span style="font-size:11px;color:var(--tx);font-weight:500;max-width:60%;text-align:right;word-break:break-all">${escHtml(v || "-")}</span>
         </div>`).join("");
 
-    document.getElementById("qr-grid").innerHTML      = qrRows;
-    document.getElementById("qr-pet-id").textContent  = pet.pet_id || "ID PENDING";
+    document.getElementById("qr-pet-id").textContent   = pet.pet_id || "ID PENDING";
     document.getElementById("qr-pet-name").textContent = pet.name;
     document.getElementById("qr-pet-sub").textContent  = `${pet.species} \u00B7 ${pet.owner_name}`;
     document.getElementById("qr-details").innerHTML    = details;
-    document.getElementById("qr-modal").style.display  = "flex";
+
+    // Add a "Download certificate" button (only when approved & has pet_id)
+    const modal = document.getElementById("qr-modal");
+    let extra   = document.getElementById("qr-cert-btn");
+    if (pet.pet_id && pet.registration_status === "approved") {
+        if (!extra) {
+            extra = document.createElement("a");
+            extra.id = "qr-cert-btn";
+            extra.className = "btn btn-outline";
+            extra.style.marginBottom = "8px";
+            extra.textContent = "\u{1F4C4} Download Licence PDF";
+            const btnGroup = modal.querySelector(".gap-8");
+            btnGroup?.insertBefore(extra, btnGroup.firstChild);
+        }
+        extra.href   = `/PetCertificate?id=${encodeURIComponent(pet.pet_id)}`;
+        extra.target = "_blank";
+        extra.rel    = "noopener";
+        extra.style.display = "";
+    } else if (extra) {
+        extra.style.display = "none";
+    }
+
+    modal.style.display  = "flex";
 }
 
 function closeQRModal() {

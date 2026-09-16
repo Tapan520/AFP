@@ -1,42 +1,99 @@
 ﻿﻿// ?? AFP CORE - API, Auth, Router, Toast ???????????????????????????????????????
 const AFP = (() => {
-    // Relative URLs - all calls route through the .NET proxy (dev->localhost:3000, prod->Railway).
-    // This ensures the JWT is signed and verified by the SAME backend - fixes "Invalid or expired token".
-    const API_BASE = "";
+// Relative URLs - all calls route through the .NET proxy (dev->localhost:3000, prod->Railway).
+// This ensures the JWT is signed and verified by the SAME backend - fixes "Invalid or expired token".
+const API_BASE = "";
 
-    let _token = null;
-    let _user  = null;
+let _token   = null;
+let _refresh = null;
+let _user    = null;
+// "session" (default) � cleared when the tab/window closes.
+// "persistent"        � kept in localStorage until logout ("Remember me").
+let _storage = null;
+
+function _readStore() {
+    // Prefer persistent (Remember me), fall back to session.
     try {
-        _token = localStorage.getItem("afp_token") || null;
-        _user  = JSON.parse(localStorage.getItem("afp_user") || "null");
-    } catch { _token = null; _user = null; }
+        const p = localStorage.getItem("afp_token");
+        if (p) return { store: localStorage, mode: "persistent" };
+    } catch { }
+    try {
+        const s = sessionStorage.getItem("afp_token");
+        if (s) return { store: sessionStorage, mode: "session" };
+    } catch { }
+    return { store: null, mode: null };
+}
+try {
+    const found = _readStore();
+    if (found.store) {
+        _token   = found.store.getItem("afp_token") || null;
+        _refresh = found.store.getItem("afp_refresh") || null;
+        _user    = JSON.parse(found.store.getItem("afp_user") || "null");
+        _storage = found.mode;
+    }
+} catch { _token = null; _user = null; _refresh = null; _storage = null; }
 
-    let _toastTimer    = null;
-    let _selectedPetId = null;
+let _toastTimer    = null;
+let _selectedPetId = null;
 
-    // ?? API Layer ?????????????????????????????????????????????????????????????
-    async function api(method, path, body) {
-        const headers = { "Content-Type": "application/json" };
-        if (_token) headers["Authorization"] = `Bearer ${_token}`;
-        const res  = await fetch(`${API_BASE}${path}`, {
-            method, headers,
-            body: body ? JSON.stringify(body) : undefined,
+// ?? API Layer ?????????????????????????????????????????????????????????????
+// Automatically retries once after a 401 using the refresh token (if any).
+async function _rawFetch(method, path, body) {
+    const headers = { "Content-Type": "application/json" };
+    if (_token) headers["Authorization"] = `Bearer ${_token}`;
+    return fetch(`${API_BASE}${path}`, {
+        method, headers,
+        body: body ? JSON.stringify(body) : undefined,
+    });
+}
+
+async function _tryRefresh() {
+    if (!_refresh) return false;
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ refreshToken: _refresh }),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || "Request failed");
-        return data;
-    }
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (!data.token) return false;
+        _token = data.token;
+        if (data.refreshToken) _refresh = data.refreshToken;
+        if (data.user) _user = data.user;
+        _persist();
+        return true;
+    } catch { return false; }
+}
 
-    async function uploadFile(path, file, fieldName = "photo") {
-        const formData = new FormData();
-        formData.append(fieldName, file);
-        const headers = {};
-        if (_token) headers["Authorization"] = `Bearer ${_token}`;
-        const res  = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || "Upload failed");
-        return data;
+async function api(method, path, body) {
+    let res = await _rawFetch(method, path, body);
+    if (res.status === 401 && _refresh && !path.startsWith("/api/auth/")) {
+        const refreshed = await _tryRefresh();
+        if (refreshed) res = await _rawFetch(method, path, body);
     }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || "Request failed");
+    return data;
+}
+
+async function uploadFile(path, file, fieldName = "photo") {
+    const formData = new FormData();
+    formData.append(fieldName, file);
+    const headers = {};
+    if (_token) headers["Authorization"] = `Bearer ${_token}`;
+    let res  = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: formData });
+    if (res.status === 401 && _refresh) {
+        const refreshed = await _tryRefresh();
+        if (refreshed) {
+            const h2 = { Authorization: `Bearer ${_token}` };
+            res = await fetch(`${API_BASE}${path}`, { method: "POST", headers: h2, body: formData });
+        }
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || "Upload failed");
+    return data;
+}
 
     const GET    = (path)       => api("GET",    path);
     const POST   = (path, body) => api("POST",   path, body);
@@ -87,22 +144,45 @@ const AFP = (() => {
     }
 
     // ?? Auth ??????????????????????????????????????????????????????????????????
-    function login(user, token) {
-        _token = token;
-        _user  = user;
-        localStorage.setItem("afp_token", token);
-        localStorage.setItem("afp_user",  JSON.stringify(user));
+    function _persist() {
+        const store = _storage === "persistent" ? localStorage : sessionStorage;
+        try {
+            store.setItem("afp_token", _token || "");
+            if (_refresh) store.setItem("afp_refresh", _refresh);
+            else store.removeItem("afp_refresh");
+            store.setItem("afp_user", JSON.stringify(_user));
+        } catch { }
     }
+
+    function login(user, token, refreshToken, remember) {
+        _token   = token || null;
+        _refresh = refreshToken || null;
+        _user    = user;
+        _storage = remember ? "persistent" : "session";
+        // Clear the OTHER storage bucket so we never have stale keys
+        try {
+            (remember ? sessionStorage : localStorage).removeItem("afp_token");
+            (remember ? sessionStorage : localStorage).removeItem("afp_refresh");
+            (remember ? sessionStorage : localStorage).removeItem("afp_user");
+        } catch { }
+        _persist();
+    }
+
+    function setUser(user) { _user = user; _persist(); }
 
     function logout() {
         // 1. Wipe in-memory auth state
         _token         = null;
+        _refresh       = null;
         _user          = null;
+        _storage       = null;
         _selectedPetId = null;
 
         // 2. Wipe ALL persisted storage for this origin
-        localStorage.removeItem("afp_token");
-        localStorage.removeItem("afp_user");
+        ["afp_token", "afp_refresh", "afp_user"].forEach(k => {
+            try { localStorage.removeItem(k);   } catch { }
+            try { sessionStorage.removeItem(k); } catch { }
+        });
         try { sessionStorage.clear(); } catch { }
 
         // 3. Close every open modal
@@ -142,6 +222,7 @@ const AFP = (() => {
     // ?? Accessors ?????????????????????????????????????????????????????????????
     function getUser()          { return _user; }
     function getToken()         { return _token; }
+    function getRefreshToken()  { return _refresh; }
     function getSelectedPetId() { return _selectedPetId; }
     function setSelectedPetId(id) { _selectedPetId = id; }
 
@@ -149,8 +230,8 @@ const AFP = (() => {
         GET, POST, PATCH, PUT, DELETE, uploadFile,
         spIco, daysTo, fmt,
         tst, go,
-        login, logout,
-        getUser, getToken,
+        login, logout, setUser,
+        getUser, getToken, getRefreshToken,
         getSelectedPetId, setSelectedPetId,
     };
 })();

@@ -1,25 +1,78 @@
 // ?????????????????????????????????????????????????????????????????????????????
-// server.js  -  AllForPets Municipal Portal  -  Express API for Railway
+// server.js  -  AllForPets Municipal Portal  -  Express API (MySQL backend)
 // ?????????????????????????????????????????????????????????????????????????????
-require("dotenv").config();
+// Env loading & validation MUST come before anything that reads process.env.
+require("./config/env");
 
 const express    = require("express");
 const cors       = require("cors");
+const helmet     = require("helmet");
+const rateLimit  = require("express-rate-limit");
 const path       = require("path");
 const pool       = require("./db");
+const { PROVIDER: STORAGE_PROVIDER } = require("./storage");
 
 // ?? Route modules ?????????????????????????????????????????????????????????????
 const authRouter        = require("./routes/auth");
 const geoRouter         = require("./routes/geo");
 const petsRouter        = require("./routes/pets");
 const adminUsersRouter  = require("./routes/adminUsers");
+const adminBackupsRouter  = require("./routes/adminBackups");
+const adminAnalyticsRouter= require("./routes/adminAnalytics");
+const adminAuditLogsRouter= require("./routes/adminAuditLogs");
 const doctorsRouter     = require("./routes/doctors");
 const shopsRouter       = require("./routes/shops");
 const reportsRouter     = require("./routes/reports");
 const discussionsRouter = require("./routes/discussions");
+const billingRouter     = require("./routes/billing");
+const adminSearchRouter = require("./routes/adminSearch");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+// ?? Security hardening (helmet + rate limit) ?????????????????????????????
+// helmet() sets a suite of secure default HTTP headers.
+// We enable a strict-ish CSP suitable for our web UI:
+//   • self scripts + jsdelivr (Swagger UI + Chart.js CDN + Razorpay SDK).
+//   • self + jsdelivr styles + inline styles (many inline `style="..."` attrs
+//     across the Razor partials — needed for now, tighten later once we
+//     externalise them).
+//   • img-src includes data: (QR codes, avatars) and https: (S3/Cloudinary/CDN).
+//   • connect-src limited to self + the Node API + Razorpay for XHR/WebSocket.
+// The mobile Expo app is NOT affected by CSP (native fetch bypasses it).
+const CSP_CONNECT = [
+  "'self'",
+  process.env.CORS_ORIGIN,
+  "https://afp.up.railway.app",
+  "https://api.razorpay.com",
+  "https://checkout.razorpay.com",
+].filter(Boolean);
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src":  ["'self'"],
+      "script-src":   ["'self'", "'unsafe-inline'",
+                       "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com",
+                       "https://checkout.razorpay.com"],
+      "style-src":    ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net",
+                       "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
+      "font-src":     ["'self'", "https://fonts.gstatic.com", "data:"],
+      "img-src":      ["'self'", "data:", "blob:", "https:"],
+      "connect-src":  CSP_CONNECT,
+      "frame-src":    ["'self'", "https://api.razorpay.com", "https://checkout.razorpay.com"],
+      "object-src":   ["'none'"],
+      "base-uri":     ["'self'"],
+      "form-action":  ["'self'"],
+    },
+  },
+}));
+
+// Global rate limit + a tighter one on /api/auth/* to blunt credential-stuffing.
+app.use(rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false }));
+app.use("/api/auth", rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false }));
 
 // ?? CORS ??????????????????????????????????????????????????????????????????????
 // Allow the .NET frontend origin plus local development
@@ -55,8 +108,11 @@ app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // ?? Static uploads (pet photos, certificates) ???????????????????????????????????
-// Files saved by multer to ./uploads/pets/ are served here without auth.
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// Only mount /uploads when using the local storage provider. When STORAGE_PROVIDER
+// is s3/azure/cloudinary the files live in the CDN and this route is a no-op.
+if (STORAGE_PROVIDER === "local") {
+  app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+}
 
 // ?? Health check ??????????????????????????????????????????????????????????????
 app.get("/health", async (_req, res) => {
@@ -66,6 +122,35 @@ app.get("/health", async (_req, res) => {
   } catch (err) {
     res.status(503).json({ status: "error", db: err.message });
   }
+});
+
+// ── API contract: OpenAPI spec + Swagger UI (mobile team + API consumers) ────
+// The spec lives at railway-backend/openapi.yaml (hand-authored) and is served
+// verbatim so `openapi-typescript-codegen` / Postman / Insomnia can consume it.
+// Swagger UI is loaded from a public CDN — zero backend npm dependency.
+app.get("/api/openapi.yaml", (_req, res) => {
+  res.type("application/yaml");
+  res.sendFile(path.join(__dirname, "openapi.yaml"));
+});
+app.get("/api/docs", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>AFP API — Swagger UI</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"/>
+  <style>body { margin:0 } .topbar { display:none }</style>
+</head><body>
+  <div id="swagger"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/api/openapi.yaml",
+      dom_id: "#swagger",
+      deepLinking: true,
+      persistAuthorization: true,
+    });
+  </script>
+</body></html>`);
 });
 
 // ?? Run-once migration endpoint ??????????????????????????????????????????????
@@ -161,11 +246,24 @@ app.get("/api/admin/pets", async (req, _res, next) => {
 // Users management  (ward_admin and above)
 app.use("/api/admin/users", adminUsersRouter);
 
+// Backups (super_admin only) — manual runs + on/off daily schedule
+app.use("/api/admin/backups", adminBackupsRouter);
+
+// Analytics dashboard (ward_admin and above; results are geo-scoped)
+app.use("/api/admin/analytics", adminAnalyticsRouter);
+
+// Activity / audit logs (super_admin only)
+app.use("/api/admin/audit-logs", adminAuditLogsRouter);
+
 // Doctors  (public GET + super_admin write)
 app.use("/api/doctors", doctorsRouter);
+// Alias used by the admin UI (afp-doctorshop-mgmt.js)
+app.use("/api/admin/doctors", doctorsRouter);
 
 // Shops  (public GET + super_admin write)
 app.use("/api/shops", shopsRouter);
+// Alias used by the admin UI
+app.use("/api/admin/shops", shopsRouter);
 
 // Reports
 app.use("/api/reports", reportsRouter);
@@ -173,6 +271,13 @@ app.use("/api/reports", reportsRouter);
 
 // Community Forum discussions
 app.use("/api/discussions", discussionsRouter);
+
+// Billing & revenue report (ward_admin+)
+app.use("/api/admin/billing", billingRouter);
+
+// Global cross-search across users / pets / doctors / shops (ward_admin+)
+app.use("/api/admin/search", adminSearchRouter);
+
 // ?? 404 catch-all ?????????????????????????????????????????????????????????????
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
@@ -193,7 +298,7 @@ async function runMigrations() {
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolution_note TEXT`,
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_at     TIMESTAMPTZ`,
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolved_by     INTEGER REFERENCES users(id) ON DELETE SET NULL`,
-    // reports geo columns � added after initial schema was deployed
+    // reports geo columns — added after initial schema was deployed
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS city_id  INTEGER REFERENCES cities(id)  ON DELETE SET NULL`,
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS nigam_id INTEGER REFERENCES nigams(id)  ON DELETE SET NULL`,
     `ALTER TABLE reports ADD COLUMN IF NOT EXISTS zone_id  INTEGER REFERENCES zones(id)   ON DELETE SET NULL`,
@@ -234,6 +339,67 @@ async function runMigrations() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_discussions_category       ON discussions(category)`,
     `CREATE INDEX IF NOT EXISTS idx_disc_replies_discussion_id ON discussion_replies(discussion_id)`,
+    // activity / audit logs (super_admin viewable)
+    `CREATE TABLE IF NOT EXISTS activity_logs (
+        id         SERIAL       PRIMARY KEY,
+        user_id    INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+        action     VARCHAR(80)  NOT NULL,
+        details    TEXT         NULL,
+        ip_address VARCHAR(64)  NULL,
+        user_agent VARCHAR(255) NULL,
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id    ON activity_logs(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_logs_action     ON activity_logs(action)`,
+
+    // ── Performance indexes for scale (10k+ users / city) ─────────────────────────────────
+    // All are idempotent — the db shim swallows ER_DUP_KEYNAME on MySQL <8.0.
+    // Users: login lookup + admin listings
+    `CREATE INDEX IF NOT EXISTS idx_users_mobile         ON users(mobile)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_email          ON users(email)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_city_role      ON users(city_id, role, is_active)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_ward_role      ON users(ward_id, role, is_active)`,
+    // Pets: owner dashboard, ward-scoped pending / stats, licence expiry sweeps
+    `CREATE INDEX IF NOT EXISTS idx_pets_owner           ON pets(owner_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_city_status     ON pets(city_id, registration_status)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_ward_status     ON pets(ward_id, registration_status)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_expiry          ON pets(licence_expiry_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_species         ON pets(species, registration_status)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_created         ON pets(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_pets_petid           ON pets(pet_id)`,
+    // Reports: ward/zone/nigam/city scoped listings
+    `CREATE INDEX IF NOT EXISTS idx_reports_ward         ON reports(ward_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_reports_city         ON reports(city_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_reports_status       ON reports(status, created_at)`,
+    // Doctors / shops: public geo-filtered lookup
+    `CREATE INDEX IF NOT EXISTS idx_doctors_city_active  ON doctors(city_id, is_active)`,
+    `CREATE INDEX IF NOT EXISTS idx_doctors_ward         ON doctors(ward_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_shops_city_active    ON shops(city_id, is_active)`,
+    `CREATE INDEX IF NOT EXISTS idx_shops_ward           ON shops(ward_id)`,
+    // Discussions & forum
+    `CREATE INDEX IF NOT EXISTS idx_discussions_user     ON discussions(user_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_discussions_created  ON discussions(created_at)`,
+
+    // ── Device-bound refresh tokens (mobile app + web) ────────────────────────
+    // Opaque high-entropy tokens hashed with SHA-256. One row per (user, device)
+    // pair. `expo_push_token` lets us send push notifications to the same
+    // device without a separate registration API.
+    `CREATE TABLE IF NOT EXISTS refresh_tokens (
+        id              SERIAL       PRIMARY KEY,
+        user_id         INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash      VARCHAR(64)  NOT NULL,
+        device_label    VARCHAR(200) NULL,
+        expo_push_token VARCHAR(200) NULL,
+        ip_address      VARCHAR(64)  NULL,
+        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        last_used_at    TIMESTAMPTZ  NULL,
+        expires_at      TIMESTAMPTZ  NOT NULL,
+        revoked_at      TIMESTAMPTZ  NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_hash    ON refresh_tokens(token_hash)`,
+    `CREATE INDEX IF NOT EXISTS        idx_refresh_tokens_user    ON refresh_tokens(user_id)`,
+    `CREATE INDEX IF NOT EXISTS        idx_refresh_tokens_expiry  ON refresh_tokens(expires_at)`,
   ];
   for (const sql of migrations) {
     try {
@@ -245,8 +411,34 @@ async function runMigrations() {
   console.log("Migrations applied.");
 }
 
-// ?? Start ?????????????????????????????????????????????????????????????????????
-runMigrations().then(() => {
+// ── Start ─────────────────────────────────────────────────────────────────────────────────
+// Wrap migrations in a MySQL advisory lock so that when multiple Node replicas
+// boot together (Railway rolling restart, horizontal scale) only ONE process
+// runs migrations at a time. Others wait briefly and skip when the lock is
+// already held, avoiding duplicate ALTER/CREATE races on the same DB.
+async function runMigrationsSafely() {
+  const LOCK_NAME = "afp_migrations_lock";
+  try {
+    const { rows } = await pool.query("SELECT GET_LOCK(?, 10) AS got", [LOCK_NAME]);
+    const got = rows && rows[0] && Number(rows[0].got) === 1;
+    if (!got) {
+      console.log("Migrations lock held by another instance — skipping.");
+      return;
+    }
+    try {
+      await runMigrations();
+    } finally {
+      await pool.query("SELECT RELEASE_LOCK(?)", [LOCK_NAME]);
+    }
+  } catch (err) {
+    // GET_LOCK is MySQL-specific; if the driver rejects it, fall back to a
+    // best-effort direct run so local dev still boots.
+    console.warn("Advisory lock unavailable, running migrations directly:", err.message);
+    await runMigrations();
+  }
+}
+
+runMigrationsSafely().then(() => {
   app.listen(PORT, () => {
     console.log(`AFP API listening on port ${PORT}`);
   });

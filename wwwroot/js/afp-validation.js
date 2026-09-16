@@ -10,7 +10,7 @@ const Validate = (() => {
         maxLen:    (n)         => (v) => v.trim().length <= n              || `Maximum ${n} characters allowed.`,
         mobile:    (v)         => /^[6-9]\d{9}$/.test(v.trim())           || "Enter a valid 10-digit Indian mobile number.",
         email:     (v)         => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) || "Enter a valid email address.",
-        password:  (v)         => v.length >= 6                            || "Password must be at least 6 characters.",
+        password:  (v)         => (/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(v)) || "Password must be at least 8 characters and include at least one letter and one digit.",
         noFuture:  (v)         => { if (!v) return "Date is required."; return new Date(v) <= new Date() || "Date cannot be in the future."; },
         select:    (v)         => v !== "" && v !== null && v !== undefined || "Please select an option.",
     };

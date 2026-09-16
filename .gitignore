@@ -24,3 +24,10 @@ appsettings.Development.json
 ## OS
 .DS_Store
 Thumbs.db
+
+## Runtime logs
+app-run.log
+app-run.err.log
+
+## Backups runtime state
+railway-backend/backups/

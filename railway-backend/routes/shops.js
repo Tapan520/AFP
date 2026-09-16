@@ -26,11 +26,12 @@ const SHOP_SELECT = `
   LEFT JOIN wards  w ON w.id = s.ward_id
 `;
 
-// ?? GET /api/shops  (public) ??????????????????????????????????????????????????
+// ?? GET /api/shops  (public) or /api/admin/shops  (admin sees inactive too)
 router.get("/", async (req, res) => {
   const { cityId, q } = req.query;
   const params = [];
-  const where  = ["s.is_active = TRUE"];
+  const isAdmin = (req.baseUrl || "").includes("/admin");
+  const where  = isAdmin ? [] : ["s.is_active = TRUE"];
 
   if (cityId) { params.push(cityId); where.push(`s.city_id = $${params.length}`); }
   if (q?.trim()) {
@@ -41,11 +42,30 @@ router.get("/", async (req, res) => {
   }
 
   try {
+    const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const { rows } = await pool.query(
-      `${SHOP_SELECT} WHERE ${where.join(" AND ")} ORDER BY s.name LIMIT 100`,
+      `${SHOP_SELECT} ${whereSQL} ORDER BY s.name LIMIT 100`,
       params
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ?? PATCH /api/shops/:id/active  { is_active } ???????????????????????????????
+router.patch("/:id/active", authenticate, requireRole("super_admin"), async (req, res) => {
+  const { is_active } = req.body;
+  if (typeof is_active !== "boolean") {
+    return res.status(400).json({ error: "is_active (boolean) is required." });
+  }
+  try {
+    const { rows } = await pool.query(
+      "UPDATE shops SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
+      [is_active, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Shop not found." });
+    res.json({ message: is_active ? "Enabled." : "Disabled.", id: rows[0].id, is_active });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

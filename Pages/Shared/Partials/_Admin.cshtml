@@ -1,0 +1,20 @@
+@* Municipal admin portal shell. Tabs + body are rendered by afp-admin.js. *@
+
+<div id="screen-admin" class="afp-screen screen d-none">
+    <div class="admin-hdr">
+        <div class="admin-hdr-left">
+            <div class="admin-logo">&#x1F3DB;&#xFE0F;</div>
+            <span class="admin-title">Municipal Portal</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+            <button class="icon-btn" style="border-color:#333;background:#222" title="Global search"
+                onclick="openGlobalSearch()">&#x1F50D;</button>
+            <button class="icon-btn" style="border-color:#333;background:#222" title="My Profile"
+                onclick="openStaffProfile()">&#x1F464;</button>
+            <span id="admin-role-badge"></span>
+            <button class="icon-btn" style="border-color:#333;background:#222" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+        </div>
+    </div>
+    <div id="admin-tabs" class="tabs"></div>
+    <div id="admin-body" class="scroll p-18 pb-32"></div>
+</div>

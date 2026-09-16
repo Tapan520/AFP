@@ -1,4 +1,4 @@
-﻿﻿// ?????????????????????????????????????????????????????????????????????????????
+﻿// ?????????????????????????????????????????????????????????????????????????????
 // routes/adminUsers.js
 //
 // GET    /api/admin/users          - list users (filtered, role-scoped)
@@ -13,6 +13,8 @@ const express = require("express");
 const bcrypt  = require("bcryptjs");
 const pool    = require("../db");
 const { authenticate, requireRole, manageableRoles } = require("../middleware/auth");
+const { validatePassword } = require("./auth");
+const { logActivity } = require("./adminAuditLogs");
 
 const router = express.Router();
 
@@ -120,12 +122,33 @@ router.get("/", async (req, res) => {
 
   const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+  // ?? Pagination ??????????????????????????????????????????????????????????
+  const page     = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(5, parseInt(req.query.pageSize, 10) || 20));
+  const offset   = (page - 1) * pageSize;
+
   try {
-    const { rows } = await pool.query(
-      `${USER_SELECT} ${whereSQL} ORDER BY u.created_at DESC LIMIT 200`,
-      params
+    // Total count for pager
+    const countParams = params.slice();
+    const { rows: [{ total }] } = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM users u ${whereSQL}`,
+      countParams
     );
-    return res.json(rows);
+
+    const listParams = params.slice();
+    listParams.push(pageSize);
+    listParams.push(offset);
+    const { rows } = await pool.query(
+      `${USER_SELECT} ${whereSQL} ORDER BY u.created_at DESC LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    );
+    return res.json({
+      rows,
+      total:    +total || 0,
+      page,
+      pageSize,
+      hasMore:  offset + rows.length < (+total || 0),
+    });
   } catch (err) {
     console.error("GET /admin/users error:", err.message);
     return res.status(500).json({ error: "Failed to fetch users." });
@@ -152,9 +175,8 @@ router.post("/", async (req, res) => {
   if (!/^[6-9]\d{9}$/.test(mobile)) {
     return res.status(400).json({ error: "Invalid mobile number." });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: "Password must be at least 6 characters." });
-  }
+  const pwErr = validatePassword(password);
+  if (pwErr) return res.status(400).json({ error: pwErr });
   if (!allowed.includes(role)) {
     return res.status(403).json({ error: `You cannot create a user with role '${role}'.` });
   }
@@ -191,6 +213,7 @@ router.post("/", async (req, res) => {
     const { rows: [user] } = await pool.query(
       `${USER_SELECT} WHERE u.id = $1`, [rows[0].id]
     );
+    await logActivity(caller.id, "user.created", `Created ${user.role} '${user.name}' (id=${user.id}, mobile=${user.mobile})`, req);
     return res.status(201).json(user);
   } catch (err) {
     if (err.code === "23505") {
@@ -242,8 +265,9 @@ router.put("/:id", async (req, res) => {
   if (mobile && !/^[6-9]\d{9}$/.test(mobile)) {
     return res.status(400).json({ error: "Invalid mobile number." });
   }
-  if (password && password.length < 6) {
-    return res.status(400).json({ error: "Password must be at least 6 characters." });
+  if (password) {
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
   }
 
   try {
@@ -283,6 +307,7 @@ router.put("/:id", async (req, res) => {
     const { rows: [user] } = await pool.query(
       `${USER_SELECT} WHERE u.id = $1`, [userId]
     );
+    await logActivity(caller.id, "user.updated", `Updated user '${user.name}' (id=${userId})`, req);
     return res.json(user);
   } catch (err) {
     if (err.code === "23505") {
@@ -320,10 +345,58 @@ router.delete("/:id", async (req, res) => {
 
   try {
     await pool.query("DELETE FROM users WHERE id = $1", [userId]);
+    await logActivity(caller.id, "user.deleted", `Deleted ${existing[0].role} id=${userId}`, req);
     return res.json({ message: "User deleted successfully.", id: userId });
   } catch (err) {
     console.error("DELETE /admin/users/:id error:", err.message);
     return res.status(500).json({ error: "Failed to delete user." });
+  }
+});
+
+// ?? POST /api/admin/users/bulk-active ???????????????????????????????????????
+// Body: { ids: [int, ...], is_active: boolean }
+// Activates or deactivates many users at once. Caller must have permission to
+// manage each user's current role, otherwise those IDs are silently skipped
+// and counted in the response's `skipped` list.
+router.post("/bulk-active", async (req, res) => {
+  const caller  = req.user;
+  const allowed = manageableRoles(caller.role);
+  const { ids, is_active } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array." });
+  }
+  if (typeof is_active !== "boolean") {
+    return res.status(400).json({ error: "is_active must be true or false." });
+  }
+  const nums = ids.map(x => parseInt(x, 10)).filter(Number.isInteger);
+  if (nums.length === 0) return res.status(400).json({ error: "No valid ids." });
+
+  try {
+    // Fetch role of each requested id
+    const params = nums.map((_, i) => `$${i + 1}`).join(",");
+    const { rows: targets } = await pool.query(
+      `SELECT id, role FROM users WHERE id IN (${params})`,
+      nums
+    );
+    const applyIds = [];
+    const skipped  = [];
+    for (const t of targets) {
+      if (t.id === caller.id) { skipped.push(t.id); continue; }
+      if (!allowed.includes(t.role)) { skipped.push(t.id); continue; }
+      applyIds.push(t.id);
+    }
+    if (applyIds.length === 0) {
+      return res.json({ updated: 0, skipped });
+    }
+    const applyPlaceholders = applyIds.map((_, i) => `$${i + 2}`).join(",");
+    await pool.query(
+      `UPDATE users SET is_active = $1, updated_at = NOW() WHERE id IN (${applyPlaceholders})`,
+      [is_active, ...applyIds]
+    );
+    return res.json({ updated: applyIds.length, skipped, is_active });
+  } catch (err) {
+    console.error("POST /admin/users/bulk-active error:", err.message);
+    return res.status(500).json({ error: "Bulk update failed." });
   }
 });
 

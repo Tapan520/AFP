@@ -2,6 +2,15 @@
 const https = require('https');
 
 const BASE = 'afp.up.railway.app';
+// Super-admin credentials come from environment. Never hard-code passwords.
+//   Windows (PowerShell): $env:SA_MOBILE = '9999999999'; $env:SA_PASSWORD = '...'; node test-portal.js
+//   *nix/mac:             SA_MOBILE=9999999999 SA_PASSWORD=... node test-portal.js
+const SA_MOBILE   = process.env.SA_MOBILE   || '9999999999';
+const SA_PASSWORD = process.env.SA_PASSWORD;
+if (!SA_PASSWORD) {
+  console.error('\x1b[31mFATAL\x1b[0m Set the SA_PASSWORD env var before running this script.');
+  process.exit(2);
+}
 let SA_TOKEN = '';
 let CITIZEN_TOKEN = '';
 let testPetId = null;
@@ -49,12 +58,12 @@ async function run() {
   check('DB connected', r.status, r.body, 200, b => b.db === 'connected' && b.users > 0);
 
   // 2. Super Admin Login
-  r = await req('POST', '/api/auth/login', { identifier: '9999999999', password: 'Admin@123' });
+  r = await req('POST', '/api/auth/login', { identifier: SA_MOBILE, password: SA_PASSWORD });
   const loginOk = check('Super Admin login', r.status, r.body, 200, b => b.token && b.user && b.user.role === 'super_admin');
   if (loginOk) SA_TOKEN = r.body.token;
 
   // 3. Wrong password
-  r = await req('POST', '/api/auth/login', { identifier: '9999999999', password: 'wrongpass' });
+  r = await req('POST', '/api/auth/login', { identifier: SA_MOBILE, password: 'wrongpass' });
   check('Reject wrong password', r.status, r.body, 401);
 
   // 4. Register citizen

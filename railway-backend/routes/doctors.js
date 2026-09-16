@@ -27,11 +27,12 @@ const DOC_SELECT = `
   LEFT JOIN wards  w ON w.id = d.ward_id
 `;
 
-// ?? GET /api/doctors  (public) ????????????????????????????????????????????????
+// ?? GET /api/doctors  (public) or /api/admin/doctors  (admin sees inactive too)
 router.get("/", async (req, res) => {
   const { cityId, q } = req.query;
   const params = [];
-  const where  = ["d.is_active = TRUE"];
+  const isAdmin = (req.baseUrl || "").includes("/admin");
+  const where  = isAdmin ? [] : ["d.is_active = TRUE"];
 
   if (cityId) { params.push(cityId); where.push(`d.city_id = $${params.length}`); }
   if (q?.trim()) {
@@ -42,11 +43,30 @@ router.get("/", async (req, res) => {
   }
 
   try {
+    const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const { rows } = await pool.query(
-      `${DOC_SELECT} WHERE ${where.join(" AND ")} ORDER BY d.name LIMIT 100`,
+      `${DOC_SELECT} ${whereSQL} ORDER BY d.name LIMIT 100`,
       params
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ?? PATCH /api/doctors/:id/active  { is_active } ?????????????????????????????
+router.patch("/:id/active", authenticate, requireRole("super_admin"), async (req, res) => {
+  const { is_active } = req.body;
+  if (typeof is_active !== "boolean") {
+    return res.status(400).json({ error: "is_active (boolean) is required." });
+  }
+  try {
+    const { rows } = await pool.query(
+      "UPDATE doctors SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
+      [is_active, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Doctor not found." });
+    res.json({ message: is_active ? "Enabled." : "Disabled.", id: rows[0].id, is_active });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -1,0 +1,114 @@
+@* Auth-flow screens: splash, citizen login, citizen registration, staff (admin) login. *@
+
+<!-- --- SCREEN: SPLASH ---------------------------------------------- -->
+<div id="screen-splash" class="afp-screen screen splash d-none">
+    <div class="splash-logo">&#x1F43E;</div>
+    <h1>All For Pets</h1>
+    <p>Register, manage and track your pets<br>with your city municipality</p>
+    <div class="splash-btns">
+        <button class="btn btn-dark" onclick="AFP.go('register')">&#x1F436;&nbsp; Register</button>
+        <button class="btn btn-dark" onclick="AFP.go('login')">&#x1F511;&nbsp; Login</button>
+        <button class="splash-staff-link" onclick="AFP.go('adminLogin')">&#x1F3DB;&#xFE0F;&nbsp; Municipal Staff Login</button>
+    </div>
+</div>
+
+<!-- --- SCREEN: LOGIN ----------------------------------------------- -->
+<div id="screen-login" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('splash')">&#x2190;</button>
+            <span class="topbar-title">Login</span>
+        </div>
+        <div style="width:34px"></div>
+    </div>
+    <div class="scroll p-18 pb-32">
+        <div class="auth-h">Welcome back</div>
+        <div class="auth-sub">Login to manage your pets</div>
+        <div id="login-err"></div>
+        <form id="login-form" novalidate>
+            <div class="field">
+                <label class="field-label">Mobile or Email</label>
+                <input id="login-id" class="field-input" type="text" placeholder="Mobile or email" autocomplete="username" />
+            </div>
+            <div class="field">
+                <label class="field-label">Password</label>
+                <input id="login-pw" class="field-input" type="password" placeholder="Password" autocomplete="current-password" />
+            </div>
+            <label class="checkbox-row" style="margin-bottom:12px;cursor:pointer">
+                <input id="login-remember" type="checkbox" style="width:16px;height:16px;margin-right:8px;accent-color:var(--or)" />
+                <span class="checkbox-lbl" style="font-size:13px">Remember me on this device</span>
+            </label>
+            <button id="login-btn" type="submit" class="btn btn-primary">Login &#x2192;</button>
+        </form>
+        <div class="auth-sw">
+            <span>New here?&nbsp;</span>
+            <a href="javascript:void(0)" onclick="AFP.go('register')">Create account</a>
+        </div>
+    </div>
+</div>
+
+<!-- --- SCREEN: REGISTER -------------------------------------------- -->
+<div id="screen-register" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="AFP.go('splash')">&#x2190;</button>
+            <span class="topbar-title">Create Account</span>
+        </div>
+        <div style="width:34px"></div>
+    </div>
+    <div class="scroll p-18 pb-32">
+        <div class="alert-box alert-info"><span>&#x2139;&#xFE0F;</span><p>Your account links to your ward for pet licensing.</p></div>
+        <div id="reg-err"></div>
+        <form id="reg-form" novalidate>
+            <div class="field"><label class="field-label">Full name *</label><input id="reg-name" class="field-input" placeholder="Tapan Singh" /></div>
+            <div class="field"><label class="field-label">Mobile *</label><input id="reg-mob" class="field-input" type="tel" placeholder="9810******" /></div>
+            <div class="field"><label class="field-label">Email *</label><input id="reg-email" class="field-input" type="email" placeholder="user@email.com" /></div>
+            <div class="field"><label class="field-label">Address *</label><input id="reg-addr" class="field-input" placeholder="House No, Street, Area" /></div>
+            <div class="field">
+                <label class="field-label">City *</label>
+                <select id="reg-city" class="field-input"><option value="">Select city…</option></select>
+            </div>
+            <div class="field">
+                <label class="field-label">Nigam *</label>
+                <select id="reg-nigam" class="field-input"><option value="">Select nigam…</option></select>
+            </div>
+            <div class="field" id="reg-zone-field" style="display:none">
+                <label class="field-label">Zone *</label>
+                <select id="reg-zone" class="field-input"><option value="">Select zone…</option></select>
+            </div>
+            <div class="field" id="reg-ward-field" style="display:none">
+                <label class="field-label">Ward *</label>
+                <select id="reg-ward" class="field-input"><option value="">Select ward…</option></select>
+            </div>
+            <div class="field"><label class="field-label">Password *</label><input id="reg-pw" class="field-input" type="password" placeholder="Min 8 chars, 1 letter + 1 digit" autocomplete="new-password" /></div>
+            <button id="reg-btn" type="submit" class="btn btn-primary">Create Account &#x2192;</button>
+        </form>
+        <div class="auth-sw">
+            <span>Have account?&nbsp;</span>
+            <a href="javascript:void(0)" onclick="AFP.go('login')">Login</a>
+        </div>
+    </div>
+</div>
+
+<!-- --- SCREEN: ADMIN LOGIN ------------------------------------------ -->
+<div id="screen-adminLogin" class="afp-screen screen d-none">
+    <div style="background:var(--dk);padding:28px 18px;text-align:center;flex-shrink:0">
+        <div style="width:72px;height:72px;border-radius:20px;background:rgba(232,103,10,.2);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 10px">&#x1F3DB;&#xFE0F;</div>
+        <div style="color:#fff;font-size:20px;font-weight:700">Municipal Portal</div>
+        <div style="color:#9A958C;font-size:13px;margin-top:4px">For authorised municipal officers only</div>
+    </div>
+    <div class="scroll p-18 pb-32">
+        <div id="al-err"></div>
+        <form id="adminlogin-form" novalidate>
+            <div class="field"><label class="field-label">Staff ID / Email</label><input id="al-id" class="field-input" placeholder="staff@jaipur.gov.in" /></div>
+            <div class="field"><label class="field-label">Password</label><input id="al-pw" class="field-input" type="password" placeholder="Password" /></div>
+            <label class="checkbox-row" style="margin-bottom:12px;cursor:pointer">
+                <input id="al-remember" type="checkbox" style="width:16px;height:16px;margin-right:8px;accent-color:var(--or)" />
+                <span class="checkbox-lbl" style="font-size:13px">Remember me on this device</span>
+            </label>
+            <button id="al-btn" type="submit" class="btn btn-primary">Login to Municipal Portal &#x2192;</button>
+        </form>
+        <div style="height:10px"></div>
+        <button class="btn btn-ghost" onclick="AFP.go('splash')">&#x2190; Back to Citizen App</button>
+    </div>
+</div>

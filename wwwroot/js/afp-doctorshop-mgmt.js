@@ -108,6 +108,7 @@ const DoctorMgmt = (() => {
         }
         listEl.innerHTML = _doctors.map(d => {
             const geo = [d.ward_number, d.nigam_name, d.city_name].filter(Boolean).map(escHtml).join(" &middot; ");
+            const active = !!d.is_active && d.is_active !== 0 && d.is_active !== "0";
             return `
             <div class="card um-card" id="dm-card-${d.id}">
                 <div style="display:flex;align-items:center;gap:12px">
@@ -119,6 +120,7 @@ const DoctorMgmt = (() => {
                         </div>
                         ${geo ? `<div style="font-size:11px;color:var(--tx3);margin-top:2px">&#x1F4CD; ${geo}</div>` : ""}
                         <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px">
+                            ${badgeHTML(active ? "Active" : "Inactive", active ? "ok" : "rj")}
                             ${d.specialization ? badgeHTML(d.specialization, "in") : ""}
                             ${d.qualification  ? badgeHTML(d.qualification,  "pn") : ""}
                             ${d.is_24hr        ? badgeHTML("24 hr Clinic",   "ok") : ""}
@@ -128,6 +130,11 @@ const DoctorMgmt = (() => {
                     <div class="um-actions">
                         <button class="icon-btn" style="background:var(--bl-p)" title="Edit"
                             onclick="DoctorMgmt.openModal(${d.id})">&#x270F;&#xFE0F;</button>
+                        <button class="icon-btn" style="background:${active ? "var(--wn-p,#FEF3C7)" : "var(--ok-p)"}"
+                            title="${active ? "Disable" : "Enable"}"
+                            onclick="DoctorMgmt.toggleActive(${d.id},${!active})">
+                            ${active ? "&#x1F6AB;" : "&#x2705;"}
+                        </button>
                         <button class="icon-btn" style="background:var(--er-p)" title="Delete"
                             onclick="DoctorMgmt.confirmDelete(${d.id},'${escHtml(d.name || "")}')">
                             &#x1F5D1;&#xFE0F;
@@ -136,6 +143,14 @@ const DoctorMgmt = (() => {
                 </div>
             </div>`;
         }).join("");
+    }
+
+    async function toggleActive(id, nextActive) {
+        try {
+            await _api("PATCH", `/api/admin/doctors/${id}/active`, { is_active: !!nextActive });
+            AFP.tst(nextActive ? "Enabled." : "Disabled.");
+            await _loadDoctors();
+        } catch (ex) { AFP.tst("Failed: " + ex.message); }
     }
 
     // ?? Geo filter cascade ????????????????????????????????????????????????????
@@ -479,7 +494,7 @@ const DoctorMgmt = (() => {
     return {
         loadDoctorMgmt,
         onCityFilter, onNigamFilter, onZoneFilter, onWardFilter, onSearch,
-        openModal, saveEntry, confirmDelete, executeDelete,
+        openModal, saveEntry, confirmDelete, executeDelete, toggleActive,
         closeModal, closeConfirmModal,
         _onCityChange, _onNigamChange, _onZoneChange,
     };
@@ -590,6 +605,7 @@ const ShopMgmt = (() => {
         }
         listEl.innerHTML = _shops.map(s => {
             const geo = [s.ward_number, s.nigam_name, s.city_name].filter(Boolean).map(escHtml).join(" &middot; ");
+            const active = !!s.is_active && s.is_active !== 0 && s.is_active !== "0";
             return `
             <div class="card um-card" id="sm-card-${s.id}">
                 <div style="display:flex;align-items:center;gap:12px">
@@ -601,14 +617,19 @@ const ShopMgmt = (() => {
                         </div>
                         ${geo ? `<div style="font-size:11px;color:var(--tx3);margin-top:2px">&#x1F4CD; ${geo}</div>` : ""}
                         <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px">
+                            ${badgeHTML(active ? "Active" : "Inactive", active ? "ok" : "rj")}
                             ${s.speciality ? badgeHTML(s.speciality, "pn") : ""}
-                            ${badgeHTML("Open", "ok")}
                         </div>
                         ${s.timings ? `<div style="font-size:11px;color:var(--tx3);margin-top:4px">&#x1F552; ${escHtml(s.timings)}</div>` : ""}
                     </div>
                     <div class="um-actions">
                         <button class="icon-btn" style="background:var(--bl-p)" title="Edit"
                             onclick="ShopMgmt.openModal(${s.id})">&#x270F;&#xFE0F;</button>
+                        <button class="icon-btn" style="background:${active ? "var(--wn-p,#FEF3C7)" : "var(--ok-p)"}"
+                            title="${active ? "Disable" : "Enable"}"
+                            onclick="ShopMgmt.toggleActive(${s.id},${!active})">
+                            ${active ? "&#x1F6AB;" : "&#x2705;"}
+                        </button>
                         <button class="icon-btn" style="background:var(--er-p)" title="Delete"
                             onclick="ShopMgmt.confirmDelete(${s.id},'${escHtml(s.name || "")}')">
                             &#x1F5D1;&#xFE0F;
@@ -617,6 +638,14 @@ const ShopMgmt = (() => {
                 </div>
             </div>`;
         }).join("");
+    }
+
+    async function toggleActive(id, nextActive) {
+        try {
+            await _api("PATCH", `/api/admin/shops/${id}/active`, { is_active: !!nextActive });
+            AFP.tst(nextActive ? "Enabled." : "Disabled.");
+            await _loadShops();
+        } catch (ex) { AFP.tst("Failed: " + ex.message); }
     }
 
     // ?? Geo filter cascade ????????????????????????????????????????????????????
@@ -937,7 +966,7 @@ const ShopMgmt = (() => {
     return {
         loadShopMgmt,
         onCityFilter, onNigamFilter, onZoneFilter, onWardFilter, onSearch,
-        openModal, saveEntry, confirmDelete, executeDelete,
+        openModal, saveEntry, confirmDelete, executeDelete, toggleActive,
         closeModal, closeConfirmModal,
         _onCityChange, _onNigamChange, _onZoneChange,
     };

@@ -1,34 +1,41 @@
 <!DOCTYPE html>
+@inject AFP.Services.CdnUrlResolver Cdn
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description" content="All For Pets – Register, manage and track your pets with your city municipality." />
+    <meta name="description" content="All For Pets â€“ Register, manage and track your pets with your city municipality." />
     <meta name="theme-color" content="#E8670A" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="All For Pets" />
-    <meta property="og:title" content="All For Pets – Municipal Pet Registry" />
+    <meta property="og:title" content="All For Pets â€“ Municipal Pet Registry" />
     <meta property="og:description" content="Register, manage and track your pets with your city municipality." />
     <meta property="og:type" content="website" />
     <title>All For Pets &#8211; Municipal Pet Registry</title>
-    <link rel="stylesheet" href="~/css/afp.css" asp-append-version="true" />
+    @if (Cdn.CdnEnabled)
+    {
+        <link rel="preconnect" href="@(new Uri(Cdn.Resolve("css/afp.css")).GetLeftPart(UriPartial.Authority))" crossorigin />
+    }
+    <link rel="stylesheet" href="@Cdn.Resolve("css/afp.css")" />
 </head>
 <body>
     @RenderBody()
-    <script src="~/js/afp-core.js" asp-append-version="true"></script>
-    <script src="~/js/afp-components.js" asp-append-version="true"></script>
-    <script src="~/js/afp-validation.js" asp-append-version="true"></script>
+    <script src="@Cdn.Resolve("js/afp-i18n.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-core.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-components.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-validation.js")"></script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script src="~/js/afp-payment.js" asp-append-version="true"></script>
-    <script src="~/js/afp-usermgmt.js" asp-append-version="true"></script>
-    <script src="~/js/afp-doctorshop-mgmt.js" asp-append-version="true"></script>
-    <script src="~/js/afp-forum.js" asp-append-version="true"></script>
-    <script src="~/js/afp-features.js" asp-append-version="true"></script>
-    <script src="~/js/afp-auth.js" asp-append-version="true"></script>
-    <script src="~/js/afp-pets.js" asp-append-version="true"></script>
-    <script src="~/js/afp-admin.js" asp-append-version="true"></script>
-    <script src="~/js/afp-screens.js" asp-append-version="true"></script>
+    <script src="@Cdn.Resolve("js/afp-payment.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-usermgmt.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-doctorshop-mgmt.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-forum.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-features.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-auth.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-pets.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-admin.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-auditlogs.js")"></script>
+    <script src="@Cdn.Resolve("js/afp-screens.js")"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

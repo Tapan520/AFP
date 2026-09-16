@@ -13,14 +13,17 @@ function initLogin() {
         if (!Validate.validateForm("login")) return;
         const id  = document.getElementById("login-id").value.trim();
         const pw  = document.getElementById("login-pw").value;
+        const remember = document.getElementById("login-remember")?.checked || false;
         const err = document.getElementById("login-err");
         const btn = document.getElementById("login-btn");
         err.innerHTML     = "";
         err.style.display = "";
         btn.classList.add("loading");
         try {
-            const { token, user } = await AFP.POST("/api/auth/login", { identifier: id, password: pw });
-            AFP.login(user, token);
+            const { token, refreshToken, user } = await AFP.POST("/api/auth/login", {
+                identifier: id, password: pw, remember,
+            });
+            AFP.login(user, token, refreshToken, remember);
             AFP.go(user.role === "citizen" ? "dashboard" : "admin");
         } catch (ex) {
             err.innerHTML = alertBoxHTML("err", ex.message || "Login failed");
@@ -96,7 +99,7 @@ async function initRegister() {
         err.style.display = "";
         btn.classList.add("loading");
         try {
-            const { token, user } = await AFP.POST("/api/auth/register", {
+            const { token, refreshToken, user } = await AFP.POST("/api/auth/register", {
                 name:     document.getElementById("reg-name").value.trim(),
                 mobile:   document.getElementById("reg-mob").value.trim(),
                 email:    document.getElementById("reg-email").value.trim(),
@@ -107,7 +110,7 @@ async function initRegister() {
                 zoneId:  +zoneEl.value  || undefined,
                 wardId:  +wardEl.value  || undefined,
             });
-            AFP.login(user, token);
+            AFP.login(user, token, refreshToken, false);
             AFP.go("dashboard");
         } catch (ex) {
             err.innerHTML = alertBoxHTML("err", ex.message || "Registration failed");
@@ -126,15 +129,18 @@ function initAdminLogin() {
         if (!Validate.validateForm("adminLogin")) return;
         const id  = document.getElementById("al-id").value.trim();
         const pw  = document.getElementById("al-pw").value;
+        const remember = document.getElementById("al-remember")?.checked || false;
         const err = document.getElementById("al-err");
         const btn = document.getElementById("al-btn");
         err.innerHTML     = "";
         err.style.display = "";
         btn.classList.add("loading");
         try {
-            const { token, user } = await AFP.POST("/api/auth/login", { identifier: id, password: pw });
+            const { token, refreshToken, user } = await AFP.POST("/api/auth/login", {
+                identifier: id, password: pw, remember,
+            });
             if (user.role === "citizen") throw new Error("Not an admin account. Please use the citizen login.");
-            AFP.login(user, token);
+            AFP.login(user, token, refreshToken, remember);
             AFP.go("admin");
         } catch (ex) {
             err.innerHTML = alertBoxHTML("err", ex.message || "Login failed");

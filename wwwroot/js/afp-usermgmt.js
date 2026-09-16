@@ -17,6 +17,10 @@ const UserMgmt = (() => {
     let _cities    = [];
     let _editUser  = null;     // null = add mode, object = edit mode
     let _container = null;
+    let _page      = 1;
+    let _pageSize  = 20;
+    let _total     = 0;
+    let _selected  = new Set(); // selected user ids for bulk operations
 
     // ?? Role display config ???????????????????????????????????????????????????
     const ROLE_CFG = {
@@ -98,7 +102,28 @@ const UserMgmt = (() => {
                     placeholder="Search by name, mobile or email&hellip;"
                     oninput="UserMgmt.onSearch(this.value)" />
             </div>
-            <div id="um-list"></div>`;
+            <div id="um-bulk-bar"
+                 style="display:none;align-items:center;justify-content:space-between;gap:10px;
+                        padding:10px 12px;background:var(--or-p);border:1px solid var(--or);
+                        border-radius:9px;margin-bottom:10px;font-size:13px">
+                <span id="um-bulk-count" style="font-weight:600">0 selected</span>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <button class="btn btn-success btn-small btn-w-auto"
+                        style="padding:6px 12px;font-size:12px" onclick="UserMgmt.bulkActivate(true)">
+                        &#x2705; Activate
+                    </button>
+                    <button class="btn btn-danger btn-small btn-w-auto"
+                        style="padding:6px 12px;font-size:12px" onclick="UserMgmt.bulkActivate(false)">
+                        &#x1F6AB; Deactivate
+                    </button>
+                    <button class="btn btn-ghost btn-small btn-w-auto"
+                        style="padding:6px 12px;font-size:12px" onclick="UserMgmt.clearSelection()">
+                        Clear
+                    </button>
+                </div>
+            </div>
+            <div id="um-list"></div>
+            <div id="um-pager"></div>`;
     }
 
     async function _loadUsers() {
@@ -112,11 +137,49 @@ const UserMgmt = (() => {
             if (user.nigam_id && user.role !== "super_admin" && user.role !== "city_admin") p.set("nigamId", user.nigam_id);
             if (user.ward_id  && user.role === "ward_admin")  p.set("wardId",  user.ward_id);
             if (_search) p.set("q", _search);
-            _users = await _localApi("GET", `/api/admin/users?${p}`);
+            p.set("page", _page);
+            p.set("pageSize", _pageSize);
+            const res = await _localApi("GET", `/api/admin/users?${p}`);
+            // Support new paginated response shape and legacy plain-array shape.
+            if (Array.isArray(res)) {
+                _users = res;
+                _total = res.length;
+            } else {
+                _users = res.rows  || [];
+                _total = res.total || _users.length;
+            }
             _renderList(listEl);
+            _renderPager();
         } catch (ex) {
             listEl.innerHTML = alertBoxHTML("err", "Failed to load users: " + ex.message);
         }
+    }
+
+    function _renderPager() {
+        let pager = document.getElementById("um-pager");
+        if (!pager) return;
+        const pages = Math.max(1, Math.ceil(_total / _pageSize));
+        if (_total <= _pageSize) { pager.innerHTML = ""; return; }
+        const start = (_page - 1) * _pageSize + 1;
+        const end   = Math.min(_page * _pageSize, _total);
+        pager.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+                        padding:10px 12px;background:var(--sf2);border-radius:9px;font-size:12px;margin-top:10px">
+                <div style="color:var(--tx2)">Showing <strong>${start}\u2013${end}</strong> of <strong>${_total}</strong></div>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <button class="btn btn-ghost btn-small btn-w-auto" style="padding:5px 10px;font-size:12px"
+                        ${_page <= 1 ? "disabled" : ""} onclick="UserMgmt.goToPage(${_page - 1})">&larr;</button>
+                    <span style="padding:0 6px;color:var(--tx)"><strong>${_page}</strong> / ${pages}</span>
+                    <button class="btn btn-ghost btn-small btn-w-auto" style="padding:5px 10px;font-size:12px"
+                        ${_page >= pages ? "disabled" : ""} onclick="UserMgmt.goToPage(${_page + 1})">&rarr;</button>
+                </div>
+            </div>`;
+    }
+
+    function goToPage(n) {
+        const pages = Math.max(1, Math.ceil(_total / _pageSize));
+        _page = Math.min(Math.max(1, n), pages);
+        _loadUsers();
     }
 
     function _renderList(listEl) {
@@ -133,9 +196,16 @@ const UserMgmt = (() => {
         const cfg    = ROLE_CFG[u.role] || { label: u.role, badge: "pn", icon: "&#x1F464;" };
         const isSelf = u.id === me?.id;
         const geo    = [u.ward_number, u.nigam_name, u.city_name].filter(Boolean).map(escHtml).join(" &middot; ");
+        const isSelected = _selected.has(u.id);
+        const canSelect  = !isSelf;
         return `
         <div class="card um-card" id="um-card-${u.id}">
             <div style="display:flex;align-items:center;gap:12px">
+                ${canSelect ? `
+                <input type="checkbox" ${isSelected ? "checked" : ""}
+                    onchange="UserMgmt.toggleSelect(${u.id}, this.checked)"
+                    style="width:16px;height:16px;accent-color:var(--or);cursor:pointer;flex-shrink:0" />` :
+                `<div style="width:16px;flex-shrink:0"></div>`}
                 <div class="um-avatar">${cfg.icon}</div>
                 <div style="flex:1;min-width:0">
                     <div style="font-weight:600;font-size:14px">
@@ -154,6 +224,9 @@ const UserMgmt = (() => {
                 <div class="um-actions">
                     <button class="icon-btn" style="background:var(--bl-p)" title="Edit user"
                         onclick="UserMgmt.openUserModal(${u.id})">&#x270F;&#xFE0F;</button>
+                    ${me?.role === "super_admin" && !isSelf ? `
+                    <button class="icon-btn" style="background:var(--wn-p,#FEF3C7)" title="Reset password"
+                        onclick="UserMgmt.openResetPasswordModal(${u.id})">&#x1F511;</button>` : ""}
                     ${!isSelf ? `
                     <button class="icon-btn" style="background:var(--er-p)" title="Delete user"
                         onclick="UserMgmt.confirmDelete(${u.id},'${escHtml(u.name || "")}')">
@@ -166,7 +239,7 @@ const UserMgmt = (() => {
 
     // ?? Tab / search ??????????????????????????????????????????????????????????
     function setTab(role) {
-        _tab = role; _search = "";
+        _tab = role; _search = ""; _page = 1; _selected.clear(); _updateBulkBar();
         const s = document.getElementById("um-search");
         if (s) s.value = "";
         document.querySelectorAll("#um-tabs .tab").forEach(t =>
@@ -174,7 +247,40 @@ const UserMgmt = (() => {
         _loadUsers();
     }
 
-    function onSearch(val) { _search = val; _loadUsers(); }
+    function onSearch(val) { _search = val; _page = 1; _loadUsers(); }
+
+    // ?? Selection & bulk operations ???????????????????????????????????????????
+    function toggleSelect(id, checked) {
+        if (checked) _selected.add(id); else _selected.delete(id);
+        _updateBulkBar();
+    }
+    function clearSelection() {
+        _selected.clear();
+        _updateBulkBar();
+        _renderList(document.getElementById("um-list"));
+    }
+    function _updateBulkBar() {
+        const bar = document.getElementById("um-bulk-bar");
+        const cnt = document.getElementById("um-bulk-count");
+        if (!bar) return;
+        bar.style.display = _selected.size > 0 ? "flex" : "none";
+        if (cnt) cnt.textContent = `${_selected.size} selected`;
+    }
+    async function bulkActivate(active) {
+        if (_selected.size === 0) return;
+        const ids = Array.from(_selected);
+        const verb = active ? "activate" : "deactivate";
+        if (!confirm(`${verb[0].toUpperCase() + verb.slice(1)} ${ids.length} user${ids.length === 1 ? "" : "s"}?`)) return;
+        try {
+            const res = await _localApi("POST", "/api/admin/users/bulk-active", { ids, is_active: active });
+            AFP.tst(`Updated ${res.updated} user${res.updated === 1 ? "" : "s"}${res.skipped?.length ? ` (${res.skipped.length} skipped)` : ""}.`);
+            _selected.clear();
+            _updateBulkBar();
+            await _loadUsers();
+        } catch (ex) {
+            AFP.tst("Bulk update failed: " + ex.message);
+        }
+    }
 
     // ?? Add / Edit user modal ?????????????????????????????????????????????????
     async function openUserModal(userId) {
@@ -502,11 +608,78 @@ const UserMgmt = (() => {
         if (m) { m.style.display = "none"; delete m._delId; delete m._delName; }
     }
 
+    // ?? Reset password (super_admin) ??????????????????????????????????????????
+    // Opens a small dedicated modal to reset just the target user's password.
+    function openResetPasswordModal(userId) {
+        const me = AFP.getUser();
+        if (me?.role !== "super_admin") {
+            AFP.tst("Only Super Admin can reset passwords.");
+            return;
+        }
+        const target = _users.find(u => u.id === userId);
+        if (!target) return;
+        const modal = document.getElementById("um-reset-modal");
+        if (!modal) return;
+
+        modal._userId = userId;
+        const nameEl = document.getElementById("um-reset-user");
+        const pwEl   = document.getElementById("um-reset-pw");
+        const cpwEl  = document.getElementById("um-reset-cpw");
+        const errEl  = document.getElementById("um-reset-err");
+        if (nameEl) nameEl.textContent = `${target.name || "User"} (${target.mobile || target.email || "\u2014"})`;
+        if (pwEl)  { pwEl.value = "";  pwEl.style.borderColor = "";  pwEl.style.background = ""; }
+        if (cpwEl) { cpwEl.value = ""; cpwEl.style.borderColor = ""; cpwEl.style.background = ""; }
+        if (errEl) errEl.innerHTML = "";
+        modal.style.display = "flex";
+    }
+
+    async function saveResetPassword() {
+        const modal = document.getElementById("um-reset-modal");
+        const btn   = document.getElementById("um-reset-save-btn");
+        const errEl = document.getElementById("um-reset-err");
+        const pwEl  = document.getElementById("um-reset-pw");
+        const cpwEl = document.getElementById("um-reset-cpw");
+        if (!modal?._userId) return;
+
+        const pw  = pwEl?.value  || "";
+        const cpw = cpwEl?.value || "";
+        errEl.innerHTML = "";
+        pwEl.style.borderColor = ""; pwEl.style.background = "";
+        cpwEl.style.borderColor = ""; cpwEl.style.background = "";
+
+        if (pw.length < 6) {
+            errEl.innerHTML = alertBoxHTML("err", "Password must be at least 6 characters.");
+            pwEl.style.borderColor = "var(--er)"; pwEl.style.background = "var(--er-p)";
+            return;
+        }
+        if (pw !== cpw) {
+            errEl.innerHTML = alertBoxHTML("err", "Passwords do not match.");
+            cpwEl.style.borderColor = "var(--er)"; cpwEl.style.background = "var(--er-p)";
+            return;
+        }
+
+        btn.classList.add("loading"); btn.disabled = true;
+        try {
+            await _localApi("PUT", `/api/admin/users/${modal._userId}`, { password: pw });
+            AFP.tst("Password reset successfully.");
+            closeResetPasswordModal();
+        } catch (ex) {
+            errEl.innerHTML = alertBoxHTML("err", ex.message || "Failed to reset password.");
+        } finally { btn.classList.remove("loading"); btn.disabled = false; }
+    }
+
+    function closeResetPasswordModal() {
+        const m = document.getElementById("um-reset-modal");
+        if (m) { m.style.display = "none"; delete m._userId; }
+    }
+
     return {
         loadUserMgmt, setTab, onSearch,
         openUserModal, saveUser,
         confirmDelete, executeDelete,
         closeUserModal, closeConfirmModal,
+        openResetPasswordModal, saveResetPassword, closeResetPasswordModal,
+        toggleSelect, clearSelection, bulkActivate, goToPage,
         _onRoleChange, _onCityChange, _onNigamChange, _onZoneChange,
     };
 })();
