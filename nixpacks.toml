@@ -1,11 +1,21 @@
-# nixpacks.toml - tells Railway/Nixpacks to use the .NET 8 SDK to build
+# nixpacks.toml — tells Railway/Nixpacks how to build the .NET 8 Razor Pages web.
+#
+# We MUST target AFP.csproj (not AFP.sln) so the AFP.Tests project is excluded
+# from the deploy image — otherwise `dotnet publish --no-restore` fails with
+# NETSDK1004 on the test project's missing assets file.
+#
+# The Node/Express API in railway-backend/ deploys as a SEPARATE Railway
+# service with its own root directory; this file does not affect it.
 [phases.setup]
   nixPkgs = ["dotnet-sdk_8"]
 
+[phases.install]
+  cmds = ["dotnet restore AFP.csproj"]
+
 [phases.build]
   cmds = [
-    "dotnet publish AFP.csproj -c Release -o /app/publish --no-self-contained -r linux-x64"
+    "dotnet publish AFP.csproj -c Release -o /app/publish --no-self-contained --no-restore -r linux-x64"
   ]
 
 [start]
-  cmd = "dotnet /app/publish/AFP.dll"
+  cmd = "dotnet /app/publish/AFP.dll --urls http://0.0.0.0:$PORT"
