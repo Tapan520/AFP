@@ -88,30 +88,50 @@ router.get("/my", authenticate, async (req, res) => {
 });
 
 // ?? GET /api/pets/stats ???????????????????????????????????????????????????????
+// Public — powers the "Pet Census" screen. Uses MySQL-safe SUM(CASE ...) syntax
+// (the PostgreSQL `COUNT(*) FILTER(WHERE ...)` with nested parens does not
+// translate cleanly through the db.js shim).
 router.get("/stats", async (_req, res) => {
   try {
     const { rows: [totals] } = await pool.query(`
       SELECT
-        COUNT(*)                                      AS "totalPets",
-        COUNT(*) FILTER(WHERE registration_status='approved'
-                          AND (licence_expiry_date IS NULL OR licence_expiry_date >= NOW())) AS "activeLicences",
-        COUNT(*) FILTER(WHERE registration_status='pending')  AS "pendingCount"
+        COUNT(*)                                                              AS totalPets,
+        SUM(CASE WHEN registration_status = 'approved'
+                  AND (licence_expiry_date IS NULL OR licence_expiry_date >= NOW())
+                 THEN 1 ELSE 0 END)                                           AS activeLicences,
+        SUM(CASE WHEN registration_status = 'pending' THEN 1 ELSE 0 END)      AS pendingCount
       FROM pets
     `);
     const { rows: cities } = await pool.query(`
       SELECT
-        c.name,
-        COUNT(p.id)::int                                        AS total,
-        COUNT(p.id) FILTER(WHERE p.species='dog')::int         AS dogs,
-        COUNT(p.id) FILTER(WHERE p.species='cat')::int         AS cats,
-        COUNT(p.id) FILTER(WHERE p.species NOT IN ('dog','cat'))::int AS others
+        c.name                                                                AS name,
+        COUNT(p.id)                                                           AS total,
+        SUM(CASE WHEN p.species = 'dog' THEN 1 ELSE 0 END)                    AS dogs,
+        SUM(CASE WHEN p.species = 'cat' THEN 1 ELSE 0 END)                    AS cats,
+        SUM(CASE WHEN p.species IS NOT NULL AND p.species NOT IN ('dog','cat')
+                 THEN 1 ELSE 0 END)                                           AS others
       FROM cities c
       LEFT JOIN pets p ON p.city_id = c.id
-      GROUP BY c.id
+      GROUP BY c.id, c.name
       ORDER BY total DESC
     `);
-    res.json({ ...totals, cities });
+    // Coerce SUM(...) results (which come back as strings in mysql2) to numbers
+    // so the frontend can do arithmetic without surprises.
+    const toInt = (v) => (v == null ? 0 : parseInt(v, 10) || 0);
+    res.json({
+      totalPets:      toInt(totals?.totalPets),
+      activeLicences: toInt(totals?.activeLicences),
+      pendingCount:   toInt(totals?.pendingCount),
+      cities: cities.map(c => ({
+        name:   c.name,
+        total:  toInt(c.total),
+        dogs:   toInt(c.dogs),
+        cats:   toInt(c.cats),
+        others: toInt(c.others),
+      })),
+    });
   } catch (err) {
+    console.error("GET /pets/stats error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
