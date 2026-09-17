@@ -33,9 +33,15 @@ const storage = getStorage();
 const UPLOAD_DIR = path.join(__dirname, "../uploads/pets"); // used only for local provider fallback
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// 10 MB cap — matches:
+//   • MAX_UPLOAD_BYTES used by the mobile presigned flow (below in this file)
+//   • MAX_UPLOAD_MB shown on the citizen Register-New-Pet form
+//   • Cloudinary free-tier single-image limit
+const UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024;
+
 const photoUpload = multer({
   storage:  multer.memoryStorage(),
-  limits:   { fileSize: 5 * 1024 * 1024 },
+  limits:   { fileSize: UPLOAD_LIMIT_BYTES },
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.mimetype);
     cb(ok ? null : new Error("Only image files are allowed for pet photos."), ok);
@@ -44,7 +50,7 @@ const photoUpload = multer({
 
 const certUpload = multer({
   storage:  multer.memoryStorage(),
-  limits:   { fileSize: 5 * 1024 * 1024 },
+  limits:   { fileSize: UPLOAD_LIMIT_BYTES },
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"].includes(file.mimetype);
     cb(ok ? null : new Error("Only image or PDF files are allowed."), ok);

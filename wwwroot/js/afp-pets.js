@@ -41,7 +41,7 @@ const PetState = (() => {
     };
 })();
 
-// Legacy global aliases — keep inline onclick= attributes in HTML working unchanged
+// Legacy global aliases â€” keep inline onclick= attributes in HTML working unchanged
 Object.defineProperty(window, "_currentPet",    { get: () => PetState.currentPet,    set: v => { PetState.currentPet = v; } });
 Object.defineProperty(window, "_petProfileTab", { get: () => PetState.petProfileTab, set: v => { PetState.petProfileTab = v; } });
 Object.defineProperty(window, "_petPhoto",      { get: () => PetState.petPhoto,      set: v => { PetState.petPhoto = v; } });
@@ -505,7 +505,7 @@ function closePetPhotoModal() {
 
 // ?? PET LICENCE CERTIFICATE GENERATOR ???????????????????????????????????????
 // Opens a print-ready HTML certificate in a new browser window.
-// The user clicks "Print / Save as PDF" to download — no server round-trip needed.
+// The user clicks "Print / Save as PDF" to download â€” no server round-trip needed.
 function generateCertificate(pet) {
     if (!pet || pet.registration_status !== "approved") {
         AFP.tst("Certificate is only available for approved pets.");
@@ -740,7 +740,7 @@ function initNewPet() {
         const btn    = document.getElementById("np-btn");
         err.innerHTML = "";
         if (btn) btn.classList.add("loading");
-        // PAYMENT DISABLED — register pet directly for end-to-end flow testing
+        // PAYMENT DISABLED â€” register pet directly for end-to-end flow testing
         try {
             const petData = await AFP.POST("/api/pets", {
                 name,
@@ -751,11 +751,11 @@ function initNewPet() {
             });
             if (PetState.newPetPhoto) {
                 try { await AFP.uploadFile(`/api/pets/${petData.id}/upload-photo`, PetState.newPetPhoto, "photo"); }
-                catch { AFP.tst("\u26A0\uFE0F Photo upload failed — add it from the pet profile."); }
+                catch { AFP.tst("\u26A0\uFE0F Photo upload failed â€” add it from the pet profile."); }
             }
             if (PetState.newPetCert) {
                 try { await AFP.uploadFile(`/api/pets/${petData.id}/upload-certificate`, PetState.newPetCert, "certificate"); }
-                catch { AFP.tst("\u26A0\uFE0F Certificate upload failed — add it from the pet profile."); }
+                catch { AFP.tst("\u26A0\uFE0F Certificate upload failed â€” add it from the pet profile."); }
             }
             AFP.tst(`${name} registered! Pending ward approval.`);
             AFP.go("dashboard");
@@ -768,8 +768,27 @@ function initNewPet() {
     });
 }
 
+// Uploads are capped at 10 MB to align with:
+//   â€¢ Cloudinary free-tier single-file image limit
+//   â€¢ Server-side multer limit in railway-backend/routes/pets.js
+//   â€¢ Pre-signed direct-upload MAX_UPLOAD_BYTES (mobile flow)
+const MAX_UPLOAD_MB    = 10;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+function _fileTooLarge(file) {
+    if (!file) return false;
+    if (file.size <= MAX_UPLOAD_BYTES) return false;
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    AFP.tst(`File is ${mb} MB â€” max allowed is ${MAX_UPLOAD_MB} MB.`);
+    return true;
+}
+
 function handleNewPetPhoto(file) {
     if (!file) return;
+    if (_fileTooLarge(file)) {
+        document.getElementById("np-photo-file").value = "";
+        return;
+    }
     PetState.newPetPhoto = file;
     const box = document.getElementById("np-photo-box");
     if (box) {
@@ -781,6 +800,10 @@ function handleNewPetPhoto(file) {
 
 function handleNewPetCert(file) {
     if (!file) return;
+    if (_fileTooLarge(file)) {
+        document.getElementById("np-cert-file").value = "";
+        return;
+    }
     PetState.newPetCert = file;
     const box = document.getElementById("np-cert-box");
     if (box) {

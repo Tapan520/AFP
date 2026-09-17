@@ -116,11 +116,15 @@
             <label class="field-label" style="margin-bottom:8px;margin-top:4px;display:block">Upload Documents</label>
             <div id="np-photo-box" class="ubox" onclick="document.getElementById('np-photo-file').click()">
                 <input id="np-photo-file" type="file" style="display:none" accept="image/*" onchange="handleNewPetPhoto(this.files[0])">
-                <div class="ubox-icon">&#x1F4F7;</div><div class="ubox-text">Upload pet photo (JPG/PNG)</div>
+                <div class="ubox-icon">&#x1F4F7;</div>
+                <div class="ubox-text">Upload pet photo (JPG/PNG)</div>
+                <div class="ubox-hint" style="font-size:11px;color:var(--tx2);margin-top:2px">Max file size: 10&nbsp;MB</div>
             </div>
             <div id="np-cert-box" class="ubox" onclick="document.getElementById('np-cert-file').click()">
                 <input id="np-cert-file" type="file" style="display:none" accept="image/*,application/pdf" onchange="handleNewPetCert(this.files[0])">
-                <div class="ubox-icon">&#x1F4C4;</div><div class="ubox-text">Upload vaccination certificate (PDF/JPG)</div>
+                <div class="ubox-icon">&#x1F4C4;</div>
+                <div class="ubox-text">Upload vaccination certificate (PDF/JPG)</div>
+                <div class="ubox-hint" style="font-size:11px;color:var(--tx2);margin-top:2px">Max file size: 10&nbsp;MB</div>
             </div>
             <div class="alert-box alert-warn" style="margin-top:8px">
                 <span>&#x1F6AB;</span>
