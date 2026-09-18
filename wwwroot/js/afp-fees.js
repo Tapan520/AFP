@@ -208,17 +208,25 @@ const FeeMgmt = (() => {
     async function openHistory(nigamId) {
         let modal = document.getElementById("fee-history-modal");
         if (!modal) {
-            // Lazy-create modal shell so we don't bloat the base HTML
+            // Lazy-create modal shell using the app's standard modal-bg /
+            // modal-sheet classes so it looks and behaves like every other
+            // dialog (bottom sheet on mobile, centred on desktop).
             const shell = document.createElement("div");
             shell.innerHTML = `
-                <div id="fee-history-modal" class="modal-overlay" style="display:none">
-                    <div class="modal-content" style="max-width:520px">
-                        <div style="display:flex;justify-content:space-between;align-items:center;
-                                    margin-bottom:12px">
+                <div id="fee-history-modal" class="modal-bg" style="display:none">
+                    <div class="modal-sheet">
+                        <div class="modal-handle"></div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;
+                                    margin-bottom:14px">
                             <div style="font-size:16px;font-weight:700">\u{1F4DC} Fee History</div>
-                            <button class="icon-btn" onclick="FeeMgmt.closeHistory()">\u2715</button>
+                            <button style="background:none;border:none;font-size:20px;
+                                           color:var(--tx3);cursor:pointer;line-height:1"
+                                onclick="FeeMgmt.closeHistory()">&times;</button>
                         </div>
-                        <div id="fee-history-body" class="scroll" style="max-height:440px"></div>
+                        <div id="fee-history-body" class="scroll"
+                             style="max-height:60vh;overflow-y:auto;padding-right:4px"></div>
+                        <button class="btn btn-ghost mt-8"
+                                onclick="FeeMgmt.closeHistory()">Close</button>
                     </div>
                 </div>`;
             document.body.appendChild(shell.firstElementChild);
