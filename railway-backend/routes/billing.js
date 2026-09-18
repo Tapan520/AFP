@@ -16,47 +16,64 @@ const { authenticate, requireRole } = require("../middleware/auth");
 const router = express.Router();
 
 router.get("/", authenticate, requireRole("ward_admin"), async (req, res) => {
-  const groupBy = ["ward", "zone", "nigam", "city"].includes(req.query.groupBy)
-    ? req.query.groupBy : "ward";
+const groupBy = ["ward", "zone", "nigam", "city"].includes(req.query.groupBy)
+  ? req.query.groupBy : "ward";
 
-  // Default to the last 90 days if no dates supplied.
-  const today = new Date();
-  const defFrom = new Date(today); defFrom.setDate(today.getDate() - 90);
-  const from = req.query.from || defFrom.toISOString().split("T")[0];
-  const to   = req.query.to   || today.toISOString().split("T")[0];
+// Default to the last 90 days if no dates supplied.
+const today = new Date();
+const defFrom = new Date(today); defFrom.setDate(today.getDate() - 90);
+const from = req.query.from || defFrom.toISOString().split("T")[0];
+const to   = req.query.to   || today.toISOString().split("T")[0];
 
-  const grpMap = {
-    ward:  { col: "w.ward_number", label: "w.ward_number" },
-    zone:  { col: "z.name",        label: "z.name"        },
-    nigam: { col: "n.name",        label: "n.name"        },
-    city:  { col: "c.name",        label: "c.name"        },
-  };
-  const g = grpMap[groupBy];
+const grpMap = {
+  ward:  { col: "w.ward_number", label: "w.ward_number" },
+  zone:  { col: "z.name",        label: "z.name"        },
+  nigam: { col: "n.name",        label: "n.name"        },
+  city:  { col: "c.name",        label: "c.name"        },
+};
+const g = grpMap[groupBy];
 
-  const sql = `
-      SELECT
-         CAST(${g.label} AS CHAR)                                          AS group_label,
-         c.name                                                            AS city_name,
-         COUNT(p.id)                                                       AS total,
-         SUM(CASE WHEN p.registration_status='approved' THEN 1 ELSE 0 END) AS approved,
-         SUM(CASE WHEN p.registration_status='pending'  THEN 1 ELSE 0 END) AS pending,
-         COALESCE(SUM(
-           CASE WHEN p.registration_status='approved'
-                THEN COALESCE(n.registration_fee, 200) ELSE 0 END
-         ), 0)                                                             AS estimated_revenue
-       FROM pets p
-       LEFT JOIN cities c ON c.id = p.city_id
-       LEFT JOIN nigams n ON n.id = p.nigam_id
-       LEFT JOIN wards  w ON w.id = p.ward_id
-       LEFT JOIN zones  z ON z.id = COALESCE(p.zone_id, w.zone_id)
-       WHERE DATE(p.created_at) BETWEEN $1 AND $2
-       GROUP BY ${g.col}, c.name
-       HAVING COUNT(p.id) > 0
-       ORDER BY estimated_revenue DESC, total DESC
-       LIMIT 200`;
+// ── Role-based geo scoping ──────────────────────────────────────────────
+// Everyone below super_admin must only see data for their own jurisdiction:
+//   ward_admin  → their ward only
+//   zone_admin  → their zone
+//   nigam_admin → their nigam
+//   city_admin  → their city   (this was previously missing → cross-city leak)
+const caller = req.user;
+const scopeParams = [];
+const scopeWhere  = [];
+if (caller.role !== "super_admin") {
+  if (caller.role === "ward_admin"  && caller.ward_id)  { scopeParams.push(caller.ward_id);  scopeWhere.push(`p.ward_id  = $${scopeParams.length + 2}`); }
+  else if (caller.role === "zone_admin"  && caller.zone_id)  { scopeParams.push(caller.zone_id);  scopeWhere.push(`p.zone_id  = $${scopeParams.length + 2}`); }
+  else if (caller.role === "nigam_admin" && caller.nigam_id) { scopeParams.push(caller.nigam_id); scopeWhere.push(`p.nigam_id = $${scopeParams.length + 2}`); }
+  else if (caller.role === "city_admin"  && caller.city_id)  { scopeParams.push(caller.city_id);  scopeWhere.push(`p.city_id  = $${scopeParams.length + 2}`); }
+}
+const scopeSql = scopeWhere.length ? ` AND ${scopeWhere.join(" AND ")}` : "";
 
-  try {
-    const result = await pool.query(sql, [from, to]);
+const sql = `
+    SELECT
+       CAST(${g.label} AS CHAR)                                          AS group_label,
+       c.name                                                            AS city_name,
+       COUNT(p.id)                                                       AS total,
+       SUM(CASE WHEN p.registration_status='approved' THEN 1 ELSE 0 END) AS approved,
+       SUM(CASE WHEN p.registration_status='pending'  THEN 1 ELSE 0 END) AS pending,
+       COALESCE(SUM(
+         CASE WHEN p.registration_status='approved'
+              THEN COALESCE(n.registration_fee, 200) ELSE 0 END
+       ), 0)                                                             AS estimated_revenue
+     FROM pets p
+     LEFT JOIN cities c ON c.id = p.city_id
+     LEFT JOIN nigams n ON n.id = p.nigam_id
+     LEFT JOIN wards  w ON w.id = p.ward_id
+     LEFT JOIN zones  z ON z.id = COALESCE(p.zone_id, w.zone_id)
+     WHERE DATE(p.created_at) BETWEEN $1 AND $2${scopeSql}
+     GROUP BY ${g.col}, c.name
+     HAVING COUNT(p.id) > 0
+     ORDER BY estimated_revenue DESC, total DESC
+     LIMIT 200`;
+
+try {
+  const result = await pool.query(sql, [from, to, ...scopeParams]);
     const rows   = Array.isArray(result) ? result[0] : result.rows;
 
     const summary = rows.reduce((acc, r) => {

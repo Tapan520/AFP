@@ -68,6 +68,26 @@ app.MapGet("/robots.txt", (HttpContext ctx) =>
     return ctx.Response.WriteAsync(body);
 });
 
+// ── Android App Links verification ───────────────────────────────────────────
+// Google's App Link verifier fetches this file to confirm the SHA-256 of the
+// APK signing key. When it matches, `intent-filter android:autoVerify="true"`
+// in AndroidManifest.xml starts opening https://afp.up.railway.app/* links
+// INSIDE the AFP app instead of the browser — which is what QR-scan on a
+// physical pet tag should do. Content lives in wwwroot/.well-known/ so any
+// change goes through the normal deploy pipeline.
+app.MapGet("/.well-known/assetlinks.json", async (HttpContext ctx, IWebHostEnvironment env) =>
+{
+    var file = Path.Combine(env.WebRootPath, ".well-known", "assetlinks.json");
+    if (!File.Exists(file))
+    {
+        ctx.Response.StatusCode = 404;
+        return;
+    }
+    ctx.Response.ContentType = "application/json; charset=utf-8";
+    ctx.Response.Headers["Cache-Control"] = "public,max-age=86400";
+    await ctx.Response.SendFileAsync(file);
+});
+
 app.MapGet("/sitemap.xml", async (HttpContext ctx, IHttpClientFactory httpFactory) =>
 {
     var host  = $"{ctx.Request.Scheme}://{ctx.Request.Host}";

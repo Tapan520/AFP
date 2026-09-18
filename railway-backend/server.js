@@ -292,6 +292,32 @@ app.use((err, _req, res, _next) => {
 // ?? Startup migrations ????????????????????????????????????????????????????????
 // These ALTER TABLE statements are idempotent (IF NOT EXISTS) so they are safe
 // to run on every boot against both fresh and existing databases.
+
+// MySQL-safe helper: some older/current MySQL versions do NOT support
+// `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, which caused the db.js SQL
+// translator to leave the syntax untouched and the ALTER to silently fail
+// (or succeed as a no-op on servers that do accept it). This helper checks
+// information_schema first and only issues the ALTER when the column is
+// really missing, so it's truly idempotent on every MySQL flavour.
+async function ensureColumn(table, column, definition) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS c
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME   = $1
+           AND COLUMN_NAME  = $2`,
+      [table, column]
+    );
+    const exists = rows && rows[0] && Number(rows[0].c) > 0;
+    if (exists) return;
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`Migration: added ${table}.${column}`);
+  } catch (err) {
+    console.error(`Migration ensureColumn(${table}.${column}) failed:`, err.message);
+  }
+}
+
 async function runMigrations() {
   const migrations = [
     // reports resolution columns
@@ -309,6 +335,20 @@ async function runMigrations() {
     `ALTER TABLE nigams ADD COLUMN IF NOT EXISTS registration_fee NUMERIC(10,2) NOT NULL DEFAULT 200`,
     `ALTER TABLE nigams ADD COLUMN IF NOT EXISTS renewal_fee      NUMERIC(10,2) NOT NULL DEFAULT 150`,
     `ALTER TABLE nigams ADD COLUMN IF NOT EXISTS transfer_fee     NUMERIC(10,2) NOT NULL DEFAULT 100`,
+    // nigam_fee_history — append-only per-field audit trail so a nigam
+    // can prove exactly when a rate changed and who made the change.
+    // (fees_updated_at / fees_updated_by are added via ensureColumn() below,
+    // because MySQL rejects `ADD COLUMN IF NOT EXISTS` on many versions.)
+    `CREATE TABLE IF NOT EXISTS nigam_fee_history (
+        id          SERIAL       PRIMARY KEY,
+        nigam_id    INTEGER      NOT NULL REFERENCES nigams(id) ON DELETE CASCADE,
+        field       VARCHAR(30)  NOT NULL,
+        old_value   NUMERIC(10,2) NULL,
+        new_value   NUMERIC(10,2) NOT NULL,
+        changed_by  INTEGER      NULL REFERENCES users(id) ON DELETE SET NULL,
+        changed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_nfh_nigam_changed ON nigam_fee_history(nigam_id, changed_at)`,
     // report_comments table (from migrations/add_report_comments.sql)
     `CREATE TABLE IF NOT EXISTS report_comments (
         id         SERIAL      PRIMARY KEY,
@@ -408,6 +448,12 @@ async function runMigrations() {
       console.error("Migration warning:", err.message);
     }
   }
+
+  // MySQL-safe column adds (real information_schema check + ALTER).
+  // On MySQL these must NOT use "IF NOT EXISTS" — see ensureColumn() docstring.
+  await ensureColumn("nigams", "fees_updated_at", "TIMESTAMP NULL");
+  await ensureColumn("nigams", "fees_updated_by", "INT NULL");
+
   console.log("Migrations applied.");
 }
 

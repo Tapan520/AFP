@@ -154,7 +154,7 @@
             <div id="renew-err"></div>
             <div id="renew-details" style="display:none"></div>
             <div class="fee-row">
-                <div><div style="color:var(--tx2);font-size:13px">Renewal fee</div><div style="font-weight:600">&#x20B9; 150</div></div>
+                <div><div style="color:var(--tx2);font-size:13px">Renewal fee</div><div style="font-weight:600">&#x20B9; <span id="renew-fee-amount">150</span></div></div>
                 <div style="text-align:right"><div style="color:var(--tx2);font-size:13px">New validity</div><div style="font-weight:600">1 year</div></div>
             </div>
             <button id="renew-btn" type="submit" class="btn btn-primary">Renew Licence &#x2192;</button>
@@ -210,7 +210,7 @@
             <div class="field"><label class="field-label">New owner's mobile *</label><input id="to-mobile" class="field-input" type="tel" placeholder="Registered mobile" /></div>
             <div class="fee-row">
                 <span class="fee-lbl">Transfer fee</span>
-                <span class="fee-val">&#x20B9; 100</span>
+                <span class="fee-val">&#x20B9; <span id="transfer-fee-amount">100</span></span>
             </div>
             <button id="to-btn" type="submit" class="btn btn-primary">Submit Transfer &#x2192;</button>
         </form>

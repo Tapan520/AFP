@@ -23,4 +23,9 @@
     <None Remove="AFP.Tests\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Expose internal virtual seams (e.g. PaymentModel.ResolveFeeAsync) to tests. -->
+    <InternalsVisibleTo Include="AFP.Tests" />
+  </ItemGroup>
+
 </Project>

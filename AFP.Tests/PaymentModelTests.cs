@@ -162,6 +162,97 @@ public class PaymentModelTests
                       .ToLowerInvariant();
     }
 
+    // ── Per-nigam fee resolution tests ──────────────────────────────────────
+    // ResolveFeeAsync is internal virtual; we subclass and stub the network hop.
+
+    private sealed class StubbedPaymentModel : PaymentModel
+    {
+        public Dictionary<int, (int reg, int ren, int trf)> Fees { get; } = new();
+        public StubbedPaymentModel(IConfiguration cfg)
+            : base(cfg, new StubHttpClientFactory(), NullLogger<PaymentModel>.Instance) { }
+
+        internal override Task<int> ResolveFeeAsync(string purpose, int? nigamId)
+        {
+            if (nigamId is null || !Fees.TryGetValue(nigamId.Value, out var f))
+                return base.ResolveFeeAsync(purpose, null);
+            var rupees = purpose switch
+            {
+                "renewal"  => f.ren,
+                "transfer" => f.trf,
+                _          => f.reg,
+            };
+            return Task.FromResult(rupees);
+        }
+    }
+
+    [Fact]
+    public async Task OnPostCreateOrderAsync_TestMode_UsesPerNigamRegistrationFee()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[42] = (reg: 350, ren: 250, trf: 150);
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+
+        Assert.Equal(350 * 100, Get<int>(result.Value!, "amount"));
+        Assert.Equal(42,        Get<int?>(result.Value!, "nigamId"));
+    }
+
+    [Theory]
+    [InlineData("registration", 350)]
+    [InlineData("renewal",      250)]
+    [InlineData("transfer",     150)]
+    public async Task OnPostCreateOrderAsync_TestMode_UsesPerNigamFeeForEachPurpose(string purpose, int rupees)
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[7] = (reg: 350, ren: 250, trf: 150);
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = purpose, NigamId = 7 });
+
+        Assert.Equal(rupees * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task OnPostCreateOrderAsync_TestMode_UnknownNigam_FallsBackToConfigThenConstant()
+    {
+        // With no per-nigam fee AND an appsettings override, the appsettings
+        // value wins (middle tier of the fallback chain).
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Payment:TestMode"]        = "true",
+                ["Payment:RegistrationFee"] = "275",
+            }).Build();
+        var model = new StubbedPaymentModel(cfg); // Fees dict is empty
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 999 });
+
+        Assert.Equal(275 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task OnPostCreateOrderAsync_TestMode_NoNigamId_FallsBackToConstant()
+    {
+        // No per-nigam value, no config override → hard-coded FeeRegistration.
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration" });
+
+        Assert.Equal(PaymentModel.FeeRegistration * 100, Get<int>(result.Value!, "amount"));
+    }
+
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new HttpClient();

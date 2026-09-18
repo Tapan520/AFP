@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using System.Security.Cryptography;
 using System.Text;
@@ -39,13 +39,16 @@ namespace AFP.Pages
         {
             bool testMode = _cfg.GetValue<bool>("Payment:TestMode", false);
 
-            int amountPaise = req.Purpose switch
-            {
-                "renewal"  => _cfg.GetValue<int>("Payment:RenewalFee",      FeeRenewal)      * 100,
-                "transfer" => _cfg.GetValue<int>("Payment:TransferFee",     FeeTransfer)     * 100,
-                _          => _cfg.GetValue<int>("Payment:RegistrationFee", FeeRegistration) * 100,
-            };
-            string currency = _cfg["Payment:Currency"] ?? Currency;
+            // Fee resolution — three-tier fallback:
+            //   1. Per-nigam value fetched from the Node backend
+            //      (nigams.registration_fee / renewal_fee / transfer_fee)
+            //   2. appsettings.json override (Payment:RegistrationFee, etc.)
+            //   3. Hard-coded constants (FeeRegistration / FeeRenewal / FeeTransfer)
+            // This lets each municipal corporation set its own tariff while
+            // still guaranteeing a working default for solo dev / demos.
+            int amountRupees = await ResolveFeeAsync(req.Purpose, req.NigamId);
+            int amountPaise  = amountRupees * 100;
+            string currency  = _cfg["Payment:Currency"] ?? Currency;
 
             // ── TEST MODE: return synthetic order, no real Razorpay call ────
             if (testMode)
@@ -60,6 +63,7 @@ namespace AFP.Pages
                     currency,
                     petName  = req.PetName ?? "",
                     purpose  = req.Purpose,
+                    nigamId  = req.NigamId,
                     testMode = true
                 });
             }
@@ -83,7 +87,7 @@ namespace AFP.Pages
                     amount   = amountPaise,
                     currency,
                     receipt  = $"afp_{req.Purpose}_{DateTime.UtcNow:yyyyMMddHHmmss}",
-                    notes    = new { petName = req.PetName ?? "", purpose = req.Purpose }
+                    notes    = new { petName = req.PetName ?? "", purpose = req.Purpose, nigamId = req.NigamId }
                 };
 
                 var response = await client.PostAsJsonAsync("https://api.razorpay.com/v1/orders", orderPayload);
@@ -103,6 +107,7 @@ namespace AFP.Pages
                     currency,
                     petName  = req.PetName ?? "",
                     purpose  = req.Purpose,
+                    nigamId  = req.NigamId,
                     testMode = false
                 });
             }
@@ -111,6 +116,49 @@ namespace AFP.Pages
                 _log.LogError(ex, "CreateOrder failed");
                 return StatusCode(500, new { error = "Could not initiate payment. Please try again." });
             }
+        }
+
+        // Resolves the fee in rupees for a given purpose, honouring the
+        // 3-tier chain (nigam DB → appsettings → constant). Made internal +
+        // virtual so unit tests can override the network hop.
+        internal virtual async Task<int> ResolveFeeAsync(string purpose, int? nigamId)
+        {
+            int fallback = purpose switch
+            {
+                "renewal"  => _cfg.GetValue<int>("Payment:RenewalFee",      FeeRenewal),
+                "transfer" => _cfg.GetValue<int>("Payment:TransferFee",     FeeTransfer),
+                _          => _cfg.GetValue<int>("Payment:RegistrationFee", FeeRegistration),
+            };
+            if (nigamId is null or <= 0) return fallback;
+
+            try
+            {
+                var client = _http.CreateClient("api-proxy");
+                var resp   = await client.GetAsync($"/api/geo/nigams/{nigamId}");
+                if (!resp.IsSuccessStatusCode) return fallback;
+                var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                string field = purpose switch
+                {
+                    "renewal"  => "renewal_fee",
+                    "transfer" => "transfer_fee",
+                    _          => "registration_fee",
+                };
+                if (json.TryGetProperty(field, out var feeEl))
+                {
+                    // The value may come back as a JSON number (from Node) or as
+                    // a string (some DB drivers stringify DECIMAL); handle both.
+                    if (feeEl.ValueKind == JsonValueKind.Number && feeEl.TryGetDecimal(out var d))
+                        return (int)Math.Round(d);
+                    if (feeEl.ValueKind == JsonValueKind.String
+                        && decimal.TryParse(feeEl.GetString(), out var s))
+                        return (int)Math.Round(s);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Per-nigam fee lookup failed for nigamId={NigamId}; using fallback {Rupees}", nigamId, fallback);
+            }
+            return fallback;
         }
 
         // POST /api/payment?handler=Verify
@@ -175,6 +223,9 @@ namespace AFP.Pages
     {
         public string  Purpose { get; set; } = "registration";
         public string? PetName { get; set; }
+        // Optional — when supplied, the server looks up per-nigam fees and
+        // uses those. When null/missing we fall back to appsettings + defaults.
+        public int?    NigamId { get; set; }
     }
 
     public class VerifyRequest

@@ -1,24 +1,28 @@
 {
-  "name":     "afp-mobile",
-  "version":  "1.0.0",
-  "private":  true,
+  "name": "afp-mobile",
+  "version": "1.0.0",
+  "private": true,
   "description": "Capacitor wrapper for the All For Pets municipal portal web app",
   "scripts": {
-    "cap:init":        "npx cap init --web-dir=wwwroot",
+    "cap:init": "npx cap init --web-dir=wwwroot",
     "cap:add:android": "npx cap add android",
-    "cap:add:ios":     "npx cap add ios",
-    "cap:sync":        "npx cap sync",
-    "cap:open:android":"npx cap open android",
-    "cap:open:ios":    "npx cap open ios",
+    "cap:add:ios": "npx cap add ios",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
     "cap:run:android": "npx cap run android",
-    "cap:run:ios":     "npx cap run ios"
+    "cap:run:ios": "npx cap run ios"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
-    "@capacitor/core":    "^6.1.2",
-    "@capacitor/ios":     "^6.1.2"
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
   },
   "devDependencies": {
-    "@capacitor/cli":     "^6.1.2"
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.1.2"
+  },
+  "allowScripts": {
+    "sharp@0.32.6": true
   }
 }

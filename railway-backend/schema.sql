@@ -28,10 +28,28 @@ CREATE TABLE IF NOT EXISTS nigams (
   registration_fee DECIMAL(10,2) NOT NULL DEFAULT 200,
   renewal_fee      DECIMAL(10,2) NOT NULL DEFAULT 150,
   transfer_fee     DECIMAL(10,2) NOT NULL DEFAULT 100,
+  fees_updated_at  TIMESTAMP NULL,
+  fees_updated_by  INT NULL,
   is_active        TINYINT(1) NOT NULL DEFAULT 1,
   created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_nigams_city FOREIGN KEY (city_id) REFERENCES cities(id) ON DELETE CASCADE
+  CONSTRAINT fk_nigams_city       FOREIGN KEY (city_id)         REFERENCES cities(id) ON DELETE CASCADE,
+  CONSTRAINT fk_nigams_fee_editor FOREIGN KEY (fees_updated_by) REFERENCES users(id)  ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- Per-field, append-only history of every fee change on a nigam.
+-- Together with nigams.fees_updated_at/by it gives compliance-ready audit.
+CREATE TABLE IF NOT EXISTS nigam_fee_history (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  nigam_id    INT NOT NULL,
+  field       VARCHAR(30) NOT NULL,   -- registration_fee | renewal_fee | transfer_fee
+  old_value   DECIMAL(10,2) NULL,
+  new_value   DECIMAL(10,2) NOT NULL,
+  changed_by  INT NULL,
+  changed_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_nfh_nigam FOREIGN KEY (nigam_id)   REFERENCES nigams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_nfh_user  FOREIGN KEY (changed_by) REFERENCES users(id)  ON DELETE SET NULL
+) ENGINE=InnoDB;
+CREATE INDEX idx_nfh_nigam_changed ON nigam_fee_history(nigam_id, changed_at DESC);
 
 CREATE TABLE IF NOT EXISTS zones (
   id          INT AUTO_INCREMENT PRIMARY KEY,

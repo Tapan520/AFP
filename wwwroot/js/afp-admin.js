@@ -47,7 +47,7 @@ const AdminState = (() => {
     };
 })();
 
-// Legacy global aliases — keep inline onclick= handlers working without any HTML changes
+// Legacy global aliases â€” keep inline onclick= handlers working without any HTML changes
 Object.defineProperty(window, "_adminTab",      { get: () => AdminState.adminTab,     set: v => { AdminState.adminTab = v; } });
 Object.defineProperty(window, "_adminPending",  { get: () => AdminState.adminPending, set: v => { AdminState.adminPending = v; } });
 Object.defineProperty(window, "_adminAllPets",  { get: () => AdminState.adminAllPets, set: v => { AdminState.adminAllPets = v; } });
@@ -77,21 +77,27 @@ async function loadAdmin() {
 }
 
 function renderAdminTabBar(user) {
-    const isSA           = user?.role === "super_admin";
-    const canManageUsers = ["super_admin","city_admin","nigam_admin","zone_admin","ward_admin"].includes(user?.role);
-    const tabs = [
-        { key: "overview",   label: "Overview" },
-        { key: "pending",    label: `Pending (${AdminState.adminPending.length})` },
-        { key: "pets",       label: "Pets" },
-        ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
-        ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
-        ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
-        ...(isSA ? [{ key: "cities",    label: "Cities"       }] : []),
-        ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
-        ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
-        ...(isSA ? [{ key: "analytics", label: "&#x1F4CA; Stats" }] : []),
-        ...(isSA ? [{ key: "logs",      label: "&#x1F4DC; Logs"  }] : []),
-    ];
+const isSA           = user?.role === "super_admin";
+const canManageUsers = ["super_admin","city_admin","nigam_admin","zone_admin","ward_admin"].includes(user?.role);
+// The Fees tab is visible to whoever can actually edit them:
+//   â€¢ super_admin  â€” can edit any nigam's fees
+//   â€¢ nigam_admin  â€” can edit their own nigam's fees only
+// (See PUT /api/geo/nigams/:id in the Node backend for the auth check.)
+const canEditFees    = isSA || user?.role === "nigam_admin";
+const tabs = [
+    { key: "overview",   label: "Overview" },
+    { key: "pending",    label: `Pending (${AdminState.adminPending.length})` },
+    { key: "pets",       label: "Pets" },
+    ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
+    ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
+    ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
+    ...(canEditFees    ? [{ key: "fees",      label: "&#x1F4B0; Fees"        }] : []),
+    ...(isSA ? [{ key: "cities",    label: "Cities"       }] : []),
+    ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
+    ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
+    ...(isSA ? [{ key: "analytics", label: "&#x1F4CA; Stats" }] : []),
+    ...(isSA ? [{ key: "logs",      label: "&#x1F4DC; Logs"  }] : []),
+];
     document.getElementById("admin-tabs").innerHTML = tabs.map(t =>
         `<button class="tab${AdminState.adminTab === t.key ? " active" : ""}"
              data-tab="${t.key}"
@@ -245,6 +251,15 @@ async function renderAdminTab(tab) {
     } else if (tab === "billing") {
         await renderAdminBilling(body);
 
+    } else if (tab === "fees") {
+        // Fee editor is shared between super_admin (any nigam) and nigam_admin
+        // (their own nigam). The FeeMgmt module gates each action on the
+        // caller's role and returns the same UI in both cases.
+        if (!["super_admin", "nigam_admin"].includes(user?.role)) {
+            body.innerHTML = alertBoxHTML("warn", "Super Admin or Nigam Admin access required.");
+            return;
+        }
+        await FeeMgmt.loadFeeMgmt(body);
     } else if (tab === "analytics") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await renderAnalyticsDashboard(body);
@@ -1094,7 +1109,7 @@ async function geoDelete(kind, id, name) {
 
 function geoActionButtons(kind, item, nameField) {
 const name = escHtml((item[nameField] || "").replace(/"/g, "'"));
-// Normalise is_active — DB may return boolean, 0/1, or "0"/"1" via the MySQL shim.
+// Normalise is_active â€” DB may return boolean, 0/1, or "0"/"1" via the MySQL shim.
 const active = !!item.is_active && item.is_active !== 0 && item.is_active !== "0";
     return `
         <button class="icon-btn" style="background:${active ? "var(--wn-p, #FEF3C7)" : "var(--ok-p)"}"
@@ -1426,7 +1441,7 @@ const el = container || document.getElementById("admin-analytics");
 if (!el) return;
     el.innerHTML = `
         <div style="font-size:15px;font-weight:700;margin:14px 0 8px">&#x1F4CA; Analytics</div>
-        <div class="card"><div style="text-align:center;color:var(--tx2);font-size:12px;padding:16px">Loading analytics…</div></div>`;
+        <div class="card"><div style="text-align:center;color:var(--tx2);font-size:12px;padding:16px">Loading analyticsâ€¦</div></div>`;
     try {
         const [data] = await Promise.all([AFP.GET("/api/admin/analytics"), _loadChartJs()]);
         el.innerHTML = `
@@ -1457,7 +1472,7 @@ if (!el) return;
                 <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
                     ${data.pendingByWard.map(r => `
                         <div style="display:flex;justify-content:space-between">
-                            <span>${escHtml(r.ward || "—")} · <span style="color:var(--tx3);font-size:11px">${escHtml(r.city || "")}</span></span>
+                            <span>${escHtml(r.ward || "â€”")} Â· <span style="color:var(--tx3);font-size:11px">${escHtml(r.city || "")}</span></span>
                             <span style="font-weight:700">${r.pending}</span>
                         </div>`).join("")}
                 </div>
@@ -1490,8 +1505,8 @@ if (!el) return;
         // City trend: group by city; stack months
         const cityMap = {};
         (data.cityTrends || []).forEach(r => {
-            cityMap[r.city || "—"] = cityMap[r.city || "—"] || {};
-            cityMap[r.city || "—"][r.month] = r.count;
+            cityMap[r.city || "â€”"] = cityMap[r.city || "â€”"] || {};
+            cityMap[r.city || "â€”"][r.month] = r.count;
         });
         const monthLabels = [...new Set((data.cityTrends || []).map(r => r.month))].sort();
         const palette = ["#E8670A", "#1E6FD9", "#16A34A", "#D97706", "#9333EA", "#DC2626"];

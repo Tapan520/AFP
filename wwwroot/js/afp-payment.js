@@ -1,4 +1,4 @@
-﻿// ?? AFP PAYMENT MODULE ????????????????????????????????????????????????????????
+// ?? AFP PAYMENT MODULE ????????????????????????????????????????????????????????
 // Handles the full Razorpay payment flow for:
 //   - Pet Registration  (?200)
 //   - Licence Renewal   (?150)
@@ -64,10 +64,18 @@ const Payment = (() => {
 
     // ?? Internal: create Razorpay order via .NET ??????????????????????????????
     async function _createOrder() {
+        // The user's home nigam determines the fee (per-nigam pricing).
+        // Fall back to opts.nigamId if provided explicitly (e.g. admin flows).
+        const user    = AFP.getUser?.() || null;
+        const nigamId = _opts.nigamId ?? user?.nigam_id ?? null;
         const res  = await fetch("/api/payment?handler=CreateOrder", {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ purpose: _opts.purpose, petName: _opts.petName ?? "" }),
+            body:    JSON.stringify({
+                purpose: _opts.purpose,
+                petName: _opts.petName ?? "",
+                nigamId: nigamId,
+            }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Could not initiate payment.");
@@ -149,6 +157,13 @@ const Payment = (() => {
             const orderData  = await _createOrder();
             _orderId = orderData.orderId;
             _keyId   = orderData.keyId;
+
+            // If per-nigam fee differs from the local FEES table default, update
+            // the visible amount in the modal so the user sees what they'll pay.
+            if (orderData.amount != null) {
+                const amtEl = document.getElementById("pay-amount");
+                if (amtEl) amtEl.textContent = `\u20B9 ${Math.round(orderData.amount / 100)}`;
+            }
 
             // Show test-mode banner once we know the server is in test mode
             if (orderData.testMode) {

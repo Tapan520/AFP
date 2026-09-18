@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.allforpets.municipal",
+      "sha256_cert_fingerprints": [
+        "07:27:FD:50:2B:C7:B8:F0:D8:FE:2A:89:71:CF:FA:81:73:D5:DD:21:51:46:65:36:2C:F5:77:76:A5:F7:71:E9"
+      ]
+    }
+  }
+]

@@ -814,10 +814,33 @@ function handleNewPetCert(file) {
 }
 
 // ?? SCREEN: RENEW ?????????????????????????????????????????????????????????????
+// Helper — fill an element with the currently-logged-in user's nigam fee for
+// a given column. Falls back to `defaultRupees` if there is no logged-in user
+// or the API call fails, so the citizen never sees an empty ₹ label.
+async function _populateNigamFee(elementId, feeField, defaultRupees) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const user = AFP.getUser?.();
+    const nigamId = user?.nigam_id;
+    if (!nigamId) {
+        el.textContent = String(defaultRupees);
+        return;
+    }
+    try {
+        const nigam = await AFP.GET(`/api/geo/nigams/${nigamId}`);
+        const v = nigam && nigam[feeField];
+        el.textContent = String(v != null ? Math.round(Number(v)) : defaultRupees);
+    } catch {
+        el.textContent = String(defaultRupees);
+    }
+}
+
 async function initRenew() {
     const sel = document.getElementById("renew-pet");
     if (!sel || sel._initialized) return;
     sel._initialized = true;
+    // Show the per-nigam renewal fee (falls back to the hard-coded 150 label).
+    _populateNigamFee("renew-fee-amount", "renewal_fee", 150);
     try {
         const data     = await AFP.GET("/api/pets/my");
         const approved = data.filter(p => p.registration_status === "approved");
@@ -899,6 +922,8 @@ async function initNewOwner() {
     sel._initialized = true;
     Validate.injectErrorContainers("transfer");
     Validate.attachLive("transfer");
+    // Per-nigam transfer fee (falls back to 100 if lookup fails).
+    _populateNigamFee("transfer-fee-amount", "transfer_fee", 100);
     try {
         const data     = await AFP.GET("/api/pets/my");
         const approved = data.filter(p => p.registration_status === "approved");

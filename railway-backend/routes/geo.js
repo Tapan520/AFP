@@ -1,4 +1,4 @@
-﻿// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // routes/geo.js  -  City -> Nigam -> Zone -> Ward
 //
 // Public  GET /api/geo/cities          - all active cities
@@ -64,6 +64,28 @@ router.get("/nigams", async (req, res) => {
       cityId ? [cityId] : []
     );
     return sendCached(res, req, rows, { maxAge: 600, swr: 604800 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/geo/nigams/:id — single nigam public read (used by the payment page
+// to look up per-nigam fees just before creating a Razorpay order).
+// NOTE: this route MUST be declared AFTER `/nigams/all` (defined below), or
+// Express will match "/all" against ":id" first and return 404. To keep both
+// working we register this handler with an explicit numeric-id guard.
+router.get("/nigams/:id(\\d+)", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, city_id, registration_fee, renewal_fee, transfer_fee,
+              fees_updated_at, is_active
+         FROM nigams WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Nigam not found." });
+    // Short cache so a fee change propagates within a minute for the payment
+    // page but repeat opens of the renew form don't hammer the DB.
+    return sendCached(res, req, rows[0], { maxAge: 60, swr: 3600 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -279,25 +301,151 @@ router.post("/nigams", authenticate, requireRole("super_admin"), async (req, res
 });
 
 // PUT /api/geo/nigams/:id
-router.put("/nigams/:id", authenticate, requireRole("super_admin"), async (req, res) => {
-  const { name, is_active, registration_fee, renewal_fee, transfer_fee } = req.body;
+// Editable by:
+//   • super_admin — any nigam
+//   • nigam_admin — only their own nigam (caller.nigam_id === :id)
+// Fee bounds are enforced server-side and every fee change is:
+//   • stamped on the nigams row     (fees_updated_at, fees_updated_by)
+//   • appended to nigam_fee_history (one row per changed field)
+// so both an "at-a-glance" audit and a full time-series are available.
+const FEE_MIN = 0;
+const FEE_MAX = 10_000;
+
+function _validateFee(label, raw) {
+  if (raw == null || raw === "") return { ok: true, value: null };
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return { ok: false, error: `${label} must be a number.` };
+  if (n < FEE_MIN || n > FEE_MAX) {
+    return { ok: false, error: `${label} must be between \u20B9${FEE_MIN} and \u20B9${FEE_MAX}.` };
+  }
+  // Round to 2 decimals (paise precision).
+  return { ok: true, value: Math.round(n * 100) / 100 };
+}
+
+router.put("/nigams/:id(\\d+)", authenticate, async (req, res) => {
+  const caller  = req.user;
+  const nigamId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(nigamId)) {
+    return res.status(400).json({ error: "Invalid nigam id." });
+  }
+
+  // Authorisation: super_admin OR nigam_admin whose own nigam matches
+  const isSuper = caller.role === "super_admin";
+  const isOwnNigamAdmin =
+    caller.role === "nigam_admin" && caller.nigam_id && caller.nigam_id === nigamId;
+  if (!isSuper && !isOwnNigamAdmin) {
+    return res.status(403).json({ error: "You cannot edit this nigam." });
+  }
+
+  const { name, is_active, registration_fee, renewal_fee, transfer_fee } = req.body || {};
+
+  // nigam_admin cannot change the nigam name or its active flag — only fees.
+  if (!isSuper && (name !== undefined || is_active !== undefined)) {
+    return res.status(403).json({
+      error: "Nigam admins can only update fees, not the nigam name or active flag.",
+    });
+  }
+
+  // Validate fee values (skip fields that were not supplied)
+  const rf = _validateFee("Registration fee", registration_fee);
+  if (!rf.ok) return res.status(400).json({ error: rf.error });
+  const rn = _validateFee("Renewal fee", renewal_fee);
+  if (!rn.ok) return res.status(400).json({ error: rn.error });
+  const tf = _validateFee("Transfer fee", transfer_fee);
+  if (!tf.ok) return res.status(400).json({ error: tf.error });
+
   try {
+    // Fetch current values so we can detect real changes for the audit log.
+    const { rows: cur } = await pool.query(
+      `SELECT id, registration_fee, renewal_fee, transfer_fee
+         FROM nigams WHERE id = $1`,
+      [nigamId]
+    );
+    if (!cur.length) return res.status(404).json({ error: "Nigam not found." });
+    const before = cur[0];
+
+    // Compare which fees actually changed
+    const feeChanges = [];
+    const eq = (a, b) => a != null && b != null && Number(a) === Number(b);
+    if (rf.value != null && !eq(before.registration_fee, rf.value)) {
+      feeChanges.push({ field: "registration_fee", old: before.registration_fee, new: rf.value });
+    }
+    if (rn.value != null && !eq(before.renewal_fee, rn.value)) {
+      feeChanges.push({ field: "renewal_fee", old: before.renewal_fee, new: rn.value });
+    }
+    if (tf.value != null && !eq(before.transfer_fee, tf.value)) {
+      feeChanges.push({ field: "transfer_fee", old: before.transfer_fee, new: tf.value });
+    }
+
+    // Apply the update
     const { rows } = await pool.query(
       `UPDATE nigams SET
          name             = COALESCE($1, name),
          is_active        = COALESCE($2, is_active),
          registration_fee = COALESCE($3, registration_fee),
          renewal_fee      = COALESCE($4, renewal_fee),
-         transfer_fee     = COALESCE($5, transfer_fee)
-       WHERE id = $6 RETURNING *`,
-      [name?.trim()||null, is_active??null,
-       registration_fee != null ? +registration_fee : null,
-       renewal_fee      != null ? +renewal_fee      : null,
-       transfer_fee     != null ? +transfer_fee     : null,
-       req.params.id]
+         transfer_fee     = COALESCE($5, transfer_fee),
+         fees_updated_at  = CASE WHEN $6 > 0 THEN NOW()  ELSE fees_updated_at END,
+         fees_updated_by  = CASE WHEN $6 > 0 THEN $7     ELSE fees_updated_by END
+       WHERE id = $8 RETURNING *`,
+      [
+        name?.trim() || null,
+        is_active ?? null,
+        rf.value,
+        rn.value,
+        tf.value,
+        feeChanges.length,
+        caller.id,
+        nigamId,
+      ]
     );
-    if (!rows.length) return res.status(404).json({ error: "Nigam not found." });
-    res.json(rows[0]);
+
+    // Append per-field history rows
+    for (const c of feeChanges) {
+      try {
+        await pool.query(
+          `INSERT INTO nigam_fee_history (nigam_id, field, old_value, new_value, changed_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nigamId, c.field, c.old, c.new, caller.id]
+        );
+      } catch (err) {
+        // History failure must not block the primary update — log & continue.
+        console.error("nigam_fee_history insert failed:", err.message);
+      }
+    }
+
+    res.json({ ...rows[0], fee_changes: feeChanges.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/geo/nigams/:id/fee-history — last 100 fee changes, most recent first.
+// Readable by super_admin, or by the nigam_admin whose own nigam matches.
+router.get("/nigams/:id(\\d+)/fee-history", authenticate, async (req, res) => {
+  const caller  = req.user;
+  const nigamId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(nigamId)) {
+    return res.status(400).json({ error: "Invalid nigam id." });
+  }
+  const isSuper = caller.role === "super_admin";
+  const isOwnNigamAdmin =
+    caller.role === "nigam_admin" && caller.nigam_id && caller.nigam_id === nigamId;
+  if (!isSuper && !isOwnNigamAdmin) {
+    return res.status(403).json({ error: "Not allowed." });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT h.id, h.field, h.old_value, h.new_value, h.changed_at,
+              h.changed_by, u.name AS changed_by_name
+         FROM nigam_fee_history h
+         LEFT JOIN users u ON u.id = h.changed_by
+         WHERE h.nigam_id = $1
+         ORDER BY h.changed_at DESC
+         LIMIT 100`,
+      [nigamId]
+    );
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
