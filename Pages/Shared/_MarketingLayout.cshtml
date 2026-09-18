@@ -1,0 +1,156 @@
+@*
+    Minimal, self-contained layout for marketing / sales pages.
+    Intentionally separate from _AppLayout so we don't drag SPA JS
+    into a landing page (better SEO + faster first paint).
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#E8670A" />
+    <title>@ViewData["Title"] · All For Pets</title>
+    <meta name="description" content="@(ViewData["Description"] ?? "All For Pets — Municipal pet registry that connects citizens with their city's licensing office.")" />
+
+    <link rel="icon" href="~/favicon.ico" />
+    <link rel="apple-touch-icon" href="~/img/icon-192.png" />
+
+    <style>
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        html,body{scroll-behavior:smooth;}
+        body{
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+            color:#1A1814;background:#FFFFFF;line-height:1.55;-webkit-font-smoothing:antialiased;
+        }
+        a{color:#E8670A;text-decoration:none;}
+        a:hover{text-decoration:underline;}
+        img{max-width:100%;height:auto;display:block;}
+        button{font-family:inherit;cursor:pointer;border:none;background:none;}
+
+        /* ── Top nav ── */
+        .mk-nav{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #E5E0D8;}
+        .mk-nav-inner{max-width:1140px;margin:0 auto;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:20px;}
+        .mk-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:#1A1814;}
+        .mk-brand-logo{width:34px;height:34px;border-radius:9px;background:#E8670A;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;}
+        .mk-links{display:flex;align-items:center;gap:22px;}
+        .mk-links a{color:#5A564F;font-weight:500;font-size:14px;}
+        .mk-links a:hover{color:#1A1814;text-decoration:none;}
+        .mk-cta-primary{background:#E8670A;color:#fff!important;padding:9px 18px;border-radius:9px;font-weight:600;font-size:14px;}
+        .mk-cta-primary:hover{background:#C25500;text-decoration:none!important;}
+        @@media (max-width:640px){
+            .mk-links a:not(.mk-cta-primary){display:none;}
+        }
+
+        /* ── Layout helpers ── */
+        .mk-container{max-width:1140px;margin:0 auto;padding:0 22px;}
+        .mk-section{padding:72px 0;}
+        .mk-section-tight{padding:48px 0;}
+        .mk-h1{font-size:44px;line-height:1.15;font-weight:800;letter-spacing:-0.5px;margin-bottom:18px;color:#1A1814;}
+        .mk-h2{font-size:32px;line-height:1.2;font-weight:800;letter-spacing:-0.3px;margin-bottom:14px;color:#1A1814;}
+        .mk-h3{font-size:19px;font-weight:700;margin-bottom:8px;color:#1A1814;}
+        .mk-lead{font-size:18px;color:#5A564F;margin-bottom:26px;max-width:640px;}
+        .mk-pill{display:inline-block;background:#FFF3E8;color:#C25500;font-weight:600;font-size:12px;letter-spacing:.6px;text-transform:uppercase;padding:6px 12px;border-radius:999px;margin-bottom:14px;}
+        .mk-center{text-align:center;}
+        .mk-center .mk-lead{margin-left:auto;margin-right:auto;}
+
+        /* ── Buttons ── */
+        .mk-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 24px;border-radius:11px;font-weight:600;font-size:15px;transition:transform .12s ease, opacity .12s ease;}
+        .mk-btn:hover{transform:translateY(-1px);text-decoration:none;}
+        .mk-btn-primary{background:#E8670A;color:#fff;}
+        .mk-btn-primary:hover{background:#C25500;color:#fff;}
+        .mk-btn-outline{background:#fff;color:#1A1814;border:2px solid #E5E0D8;}
+        .mk-btn-outline:hover{border-color:#E8670A;color:#E8670A;}
+        .mk-btn-dark{background:#1A1814;color:#fff;}
+        .mk-btn-dark:hover{background:#2D2820;color:#fff;}
+        .mk-btn-row{display:flex;flex-wrap:wrap;gap:12px;}
+        .mk-center .mk-btn-row{justify-content:center;}
+
+        /* ── Footer ── */
+        .mk-footer{background:#1A1814;color:rgba(255,255,255,.72);padding:52px 0 26px;margin-top:60px;}
+        .mk-footer a{color:rgba(255,255,255,.72);}
+        .mk-footer a:hover{color:#fff;text-decoration:none;}
+        .mk-footer-grid{max-width:1140px;margin:0 auto;padding:0 22px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:34px;}
+        .mk-footer-brand{color:#fff;font-weight:700;font-size:18px;margin-bottom:9px;display:flex;align-items:center;gap:10px;}
+        .mk-footer-col-title{color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px;}
+        .mk-footer-col ul{list-style:none;}
+        .mk-footer-col li{padding:4px 0;font-size:14px;}
+        .mk-footer-bottom{max-width:1140px;margin:34px auto 0;padding:20px 22px 0;border-top:1px solid rgba(255,255,255,.12);font-size:12px;color:rgba(255,255,255,.5);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+        @@media (max-width:768px){
+            .mk-footer-grid{grid-template-columns:1fr 1fr;}
+        }
+        @@media (max-width:480px){
+            .mk-footer-grid{grid-template-columns:1fr;}
+            .mk-h1{font-size:34px;}
+            .mk-h2{font-size:26px;}
+            .mk-section{padding:52px 0;}
+        }
+    </style>
+
+    @RenderSection("Head", required: false)
+</head>
+<body>
+
+    <nav class="mk-nav">
+        <div class="mk-nav-inner">
+            <a class="mk-brand" href="/">
+                <span class="mk-brand-logo">&#x1F43E;</span>
+                <span>All For Pets</span>
+            </a>
+            <div class="mk-links">
+                <a href="/Marketing#features">Features</a>
+                <a href="/Marketing#how-it-works">How it works</a>
+                <a href="/Pricing">Pricing</a>
+                <a href="/">Sign in</a>
+                <a class="mk-cta-primary" href="/">Get started</a>
+            </div>
+        </div>
+    </nav>
+
+    @RenderBody()
+
+    <footer class="mk-footer">
+        <div class="mk-footer-grid">
+            <div class="mk-footer-col">
+                <div class="mk-footer-brand">
+                    <span style="width:32px;height:32px;border-radius:8px;background:#E8670A;display:flex;align-items:center;justify-content:center;font-size:17px">&#x1F43E;</span>
+                    All For Pets
+                </div>
+                <div style="font-size:14px;line-height:1.55;max-width:340px">
+                    A municipal pet registry that connects citizens with their city's licensing office.
+                    Register, renew, transfer &mdash; all from your phone.
+                </div>
+            </div>
+            <div class="mk-footer-col">
+                <div class="mk-footer-col-title">Product</div>
+                <ul>
+                    <li><a href="/Marketing#features">Features</a></li>
+                    <li><a href="/Marketing#how-it-works">How it works</a></li>
+                    <li><a href="/Pricing">Pricing</a></li>
+                    <li><a href="/api/docs">API docs</a></li>
+                </ul>
+            </div>
+            <div class="mk-footer-col">
+                <div class="mk-footer-col-title">Company</div>
+                <ul>
+                    <li><a href="/Marketing#contact">Contact</a></li>
+                    <li><a href="/Pricing#faq">FAQ</a></li>
+                    <li><a href="/">Sign in</a></li>
+                </ul>
+            </div>
+            <div class="mk-footer-col">
+                <div class="mk-footer-col-title">Get the app</div>
+                <ul>
+                    <li><a href="/">Android APK</a></li>
+                    <li><a href="/">Web app</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="mk-footer-bottom">
+            <span>&copy; @DateTime.UtcNow.Year All For Pets. All rights reserved.</span>
+            <span>Made with &#x1F9E1; for cities and their pets</span>
+        </div>
+    </footer>
+
+    @RenderSection("Scripts", required: false)
+</body>
+</html>
