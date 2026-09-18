@@ -729,6 +729,17 @@ function initNewPet() {
     form._initialized = true;
     Validate.injectErrorContainers("newPet");
     Validate.attachLive("newPet");
+
+    // Live per-species/size fee preview — recompute whenever species or breed
+    // changes so the citizen sees the exact fee before submitting.
+    const spEl    = document.getElementById("np-species");
+    const brEl    = document.getElementById("np-breed");
+    const refresh = () => _refreshRegistrationFeePreview(spEl?.value, brEl?.value);
+    spEl?.addEventListener("change", refresh);
+    brEl?.addEventListener("input",  refresh);
+    // Trigger once so the label shows on first render.
+    setTimeout(refresh, 0);
+
     form.addEventListener("submit", async function (e) {
         e.preventDefault();
         if (!Validate.validateForm("newPet")) return;
@@ -835,6 +846,58 @@ async function _populateNigamFee(elementId, feeField, defaultRupees) {
     }
 }
 
+// Helper — resolve the per-species/size fee for a given purpose using the
+// nigam's fee-rules matrix (falls back to the flat fee automatically on the
+// server). Returns the amount in rupees, or null if no lookup was possible.
+async function _resolveFeeAmount(purpose, species, breed) {
+    const user = AFP.getUser?.();
+    const nigamId = user?.nigam_id;
+    if (!nigamId || !species) return null;
+    try {
+        const p = new URLSearchParams({ purpose, species });
+        if (breed) p.set("breed", breed);
+        const r = await AFP.GET(`/api/geo/nigams/${nigamId}/resolve-fee?${p}`);
+        return r && r.amount != null ? { amount: Math.round(Number(r.amount)),
+                                         from: r.resolvedFrom,
+                                         sizeCategory: r.sizeCategory } : null;
+    } catch { return null; }
+}
+
+// Refresh the fee-preview banner on the Register-New-Pet form. Rendered as an
+// info alert-box that sits above the payment-disabled warning.
+let _lastFeeReq = 0;
+async function _refreshRegistrationFeePreview(species, breed) {
+    const host = document.getElementById("np-fee-preview");
+    if (!host) {
+        // Lazy-create the preview container just above the payment warning.
+        const warn = document.querySelector("#screen-newPet .alert-warn");
+        if (!warn) return;
+        const div = document.createElement("div");
+        div.id = "np-fee-preview";
+        div.style.margin = "0 0 8px";
+        warn.parentNode.insertBefore(div, warn);
+    }
+    const el = document.getElementById("np-fee-preview");
+    if (!el) return;
+    const my = ++_lastFeeReq;
+    const r  = await _resolveFeeAmount("registration", species, breed);
+    if (my !== _lastFeeReq) return;  // a newer request has arrived, discard
+    if (!r) { el.innerHTML = ""; return; }
+    const sizeLbl = r.sizeCategory === "large_aggressive" ? "Large / Aggressive"
+                  : r.sizeCategory === "small"            ? "Small"
+                  :                                         "Standard";
+    el.innerHTML = `
+      <div class="alert-box alert-info" style="margin-bottom:0">
+        <span>\u{1F4B0}</span>
+        <p style="font-size:13px">
+          Registration fee for a <strong>${escHtml(species || "pet")}</strong>
+          (<strong>${escHtml(sizeLbl)}</strong>):
+          <strong>\u20B9${r.amount}</strong>
+          ${r.from === "default" ? '<span style="color:var(--tx3)"> \u00B7 default</span>' : ""}
+        </p>
+      </div>`;
+}
+
 async function initRenew() {
     const sel = document.getElementById("renew-pet");
     if (!sel || sel._initialized) return;
@@ -850,7 +913,7 @@ async function initRenew() {
         sel._pets = approved;
     } catch { }
 
-    sel.addEventListener("change", function () {
+    sel.addEventListener("change", async function () {
         const det = document.getElementById("renew-details");
         if (!det) return;
         const pet = (sel._pets || []).find(p => String(p.id) === this.value);
@@ -861,6 +924,13 @@ async function initRenew() {
                     ${infoRowHTML("Pet ID",         pet.pet_id || null, true)}
                     ${infoRowHTML("Current expiry", AFP.fmt(pet.licence_expiry_date))}
                 </div>`;
+            // Recompute the renewal fee based on the pet's species+breed so
+            // large/aggressive breeds pay the correct tier at renewal (Q5).
+            const feeEl = document.getElementById("renew-fee-amount");
+            if (feeEl) {
+                const r = await _resolveFeeAmount("renewal", pet.species, pet.breed);
+                if (r) feeEl.textContent = String(r.amount);
+            }
         } else { det.style.display = "none"; }
     });
 

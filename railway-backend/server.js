@@ -349,6 +349,26 @@ async function runMigrations() {
         changed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_nfh_nigam_changed ON nigam_fee_history(nigam_id, changed_at)`,
+    // ── Per-species / per-size fee rules (extends per-nigam flat fees) ────
+    // When no matching row exists here, the payment engine falls back to the
+    // nigams.registration_fee / renewal_fee / transfer_fee columns (backwards
+    // compatible — nothing breaks if a nigam hasn't configured the matrix).
+    //   species       ∈ 'dog' | 'cat' | 'other'
+    //   size_category ∈ 'large_aggressive' | 'small' | 'single'
+    // Unique constraint prevents duplicates per (nigam, species, size).
+    `CREATE TABLE IF NOT EXISTS nigam_fee_rules (
+        id                SERIAL        PRIMARY KEY,
+        nigam_id          INTEGER       NOT NULL REFERENCES nigams(id) ON DELETE CASCADE,
+        species           VARCHAR(20)   NOT NULL,
+        size_category     VARCHAR(20)   NOT NULL,
+        registration_fee  NUMERIC(10,2) NOT NULL DEFAULT 0,
+        renewal_fee       NUMERIC(10,2) NOT NULL DEFAULT 0,
+        transfer_fee      NUMERIC(10,2) NOT NULL DEFAULT 0,
+        updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_by        INTEGER       NULL REFERENCES users(id) ON DELETE SET NULL
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_nfr_nigam_sp_size
+        ON nigam_fee_rules(nigam_id, species, size_category)`,
     // report_comments table (from migrations/add_report_comments.sql)
     `CREATE TABLE IF NOT EXISTS report_comments (
         id         SERIAL      PRIMARY KEY,

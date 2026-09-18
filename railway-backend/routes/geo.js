@@ -15,6 +15,7 @@ const express = require("express");
 const crypto  = require("crypto");
 const pool    = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
+const { classifyBreed, ALL_BUCKETS } = require("../util/breedRules");
 
 const router = express.Router();
 
@@ -446,6 +447,189 @@ router.get("/nigams/:id(\\d+)/fee-history", authenticate, async (req, res) => {
       [nigamId]
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Per-species/size fee rules ───────────────────────────────────────────────
+// GET  /api/geo/nigams/:id/fee-rules      → matrix for the admin editor
+// PUT  /api/geo/nigams/:id/fee-rules      → replace the matrix (audited)
+// GET  /api/geo/nigams/:id/resolve-fee?species=&breed=&purpose=
+//                                          → per-citizen fee preview
+//
+// Authorisation mirrors the flat-fee endpoints:
+//   • super_admin — any nigam
+//   • nigam_admin — only their own nigam
+//   • public read — resolve-fee is authenticated but role-agnostic (citizens
+//                    call it to see the correct fee before checkout)
+
+function _canEditNigam(caller, nigamId) {
+  if (caller.role === "super_admin") return true;
+  return caller.role === "nigam_admin" && caller.nigam_id === nigamId;
+}
+function _canReadNigam(caller, nigamId) {
+  // Any authenticated user may READ fee rules for their own nigam (needed for
+  // the citizen fee preview). Staff at nigam level and above may read any.
+  if (["super_admin", "city_admin"].includes(caller.role)) return true;
+  return caller.nigam_id === nigamId;
+}
+
+// GET /api/geo/nigams/:id/fee-rules
+router.get("/nigams/:id(\\d+)/fee-rules", authenticate, async (req, res) => {
+  const nigamId = parseInt(req.params.id, 10);
+  if (!_canReadNigam(req.user, nigamId)) {
+    return res.status(403).json({ error: "Not allowed." });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT species, size_category, registration_fee, renewal_fee, transfer_fee
+         FROM nigam_fee_rules WHERE nigam_id = $1`,
+      [nigamId]
+    );
+    // Merge with the full list of buckets so the UI can render an empty
+    // matrix on first load without an extra API round-trip.
+    const byKey = new Map(rows.map(r => [`${r.species}|${r.size_category}`, r]));
+    const matrix = ALL_BUCKETS.map(b => {
+      const existing = byKey.get(`${b.species}|${b.sizeCategory}`);
+      return {
+        species:          b.species,
+        size_category:    b.sizeCategory,
+        registration_fee: existing ? Number(existing.registration_fee) : null,
+        renewal_fee:      existing ? Number(existing.renewal_fee)      : null,
+        transfer_fee:     existing ? Number(existing.transfer_fee)     : null,
+      };
+    });
+    res.json(matrix);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/geo/nigams/:id/fee-rules
+// Body: { rules: [{ species, size_category, registration_fee, renewal_fee, transfer_fee }, ...] }
+// Each row is validated + upserted. Rows with all-null fees are deleted (so
+// the admin can "clear" a bucket back to the flat fallback).
+router.put("/nigams/:id(\\d+)/fee-rules", authenticate, async (req, res) => {
+  const caller  = req.user;
+  const nigamId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(nigamId)) return res.status(400).json({ error: "Invalid nigam id." });
+  if (!_canEditNigam(caller, nigamId)) return res.status(403).json({ error: "You cannot edit this nigam." });
+
+  const { rules } = req.body || {};
+  if (!Array.isArray(rules)) return res.status(400).json({ error: "rules must be an array." });
+
+  const validSpecies = new Set(["dog", "cat", "other"]);
+  const validSizes   = new Set(["large_aggressive", "small", "single"]);
+  let saved = 0, cleared = 0;
+
+  try {
+    for (const r of rules) {
+      const sp = String(r.species || "").toLowerCase();
+      const sz = String(r.size_category || "").toLowerCase();
+      if (!validSpecies.has(sp) || !validSizes.has(sz)) continue;
+      // Disallow illegal combos (cat/other must be 'single'; dog must not be 'single')
+      if (sp !== "dog" && sz !== "single") continue;
+      if (sp === "dog" && sz === "single") continue;
+
+      const rf = _validateFee("Registration fee", r.registration_fee);
+      const rn = _validateFee("Renewal fee",      r.renewal_fee);
+      const tf = _validateFee("Transfer fee",     r.transfer_fee);
+      if (!rf.ok) return res.status(400).json({ error: rf.error });
+      if (!rn.ok) return res.status(400).json({ error: rn.error });
+      if (!tf.ok) return res.status(400).json({ error: tf.error });
+
+      const allNull = rf.value == null && rn.value == null && tf.value == null;
+      if (allNull) {
+        // Empty row → remove the rule so we fall back to the flat fee.
+        const { rowCount } = await pool.query(
+          `DELETE FROM nigam_fee_rules WHERE nigam_id=$1 AND species=$2 AND size_category=$3`,
+          [nigamId, sp, sz]
+        );
+        cleared += rowCount || 0;
+        continue;
+      }
+
+      // Upsert. MySQL rejects ON CONFLICT via the shim, so emulate manually:
+      // try UPDATE first, INSERT if 0 rows affected.
+      const { rowCount } = await pool.query(
+        `UPDATE nigam_fee_rules
+            SET registration_fee = COALESCE($1, registration_fee),
+                renewal_fee      = COALESCE($2, renewal_fee),
+                transfer_fee     = COALESCE($3, transfer_fee),
+                updated_at       = NOW(),
+                updated_by       = $4
+          WHERE nigam_id = $5 AND species = $6 AND size_category = $7`,
+        [rf.value, rn.value, tf.value, caller.id, nigamId, sp, sz]
+      );
+      if (!rowCount) {
+        await pool.query(
+          `INSERT INTO nigam_fee_rules
+             (nigam_id, species, size_category, registration_fee, renewal_fee, transfer_fee, updated_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [nigamId, sp, sz, rf.value ?? 0, rn.value ?? 0, tf.value ?? 0, caller.id]
+        );
+      }
+      saved += 1;
+    }
+    res.json({ saved, cleared });
+  } catch (err) {
+    console.error("PUT fee-rules error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/geo/nigams/:id/resolve-fee?species=&breed=&purpose=registration
+// Returns  { amount, resolvedFrom, species, sizeCategory }
+//   resolvedFrom ∈ 'rule' | 'nigam' | 'default'
+// Purpose defaults to 'registration'. Used by the citizen UI to show the
+// correct amount live as they pick species + breed.
+router.get("/nigams/:id(\\d+)/resolve-fee", authenticate, async (req, res) => {
+  const nigamId = parseInt(req.params.id, 10);
+  if (!_canReadNigam(req.user, nigamId)) {
+    return res.status(403).json({ error: "Not allowed." });
+  }
+  const purpose = ["registration", "renewal", "transfer"].includes(req.query.purpose)
+                  ? req.query.purpose : "registration";
+  const field = purpose === "renewal"  ? "renewal_fee"
+              : purpose === "transfer" ? "transfer_fee"
+              :                          "registration_fee";
+  const { species, sizeCategory } = classifyBreed(req.query.species, req.query.breed);
+
+  try {
+    // 1) Try rule row
+    const { rows: r } = await pool.query(
+      `SELECT ${field} AS fee FROM nigam_fee_rules
+         WHERE nigam_id = $1 AND species = $2 AND size_category = $3`,
+      [nigamId, species, sizeCategory]
+    );
+    if (r.length && r[0].fee != null) {
+      return res.json({
+        amount: Number(r[0].fee),
+        resolvedFrom: "rule",
+        species, sizeCategory,
+      });
+    }
+
+    // 2) Fall back to nigam flat fee
+    const { rows: n } = await pool.query(
+      `SELECT ${field} AS fee FROM nigams WHERE id = $1`, [nigamId]
+    );
+    if (n.length && n[0].fee != null) {
+      return res.json({
+        amount: Number(n[0].fee),
+        resolvedFrom: "nigam",
+        species, sizeCategory,
+      });
+    }
+
+    // 3) Hard defaults (mirrors PaymentModel constants)
+    const defaults = { registration_fee: 200, renewal_fee: 150, transfer_fee: 100 };
+    res.json({
+      amount: defaults[field],
+      resolvedFrom: "default",
+      species, sizeCategory,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

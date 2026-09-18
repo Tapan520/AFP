@@ -127,6 +127,9 @@ const FeeMgmt = (() => {
                     \u{1F4DC} History
                 </button>
             </div>
+            <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.6px;margin:4px 0 6px">
+                Flat fees (fallback)
+            </div>
             <div class="d-row" style="gap:8px">
                 ${_feeInputHTML(n.id, "registration_fee", "Registration", reg)}
                 ${_feeInputHTML(n.id, "renewal_fee",      "Renewal",      ren)}
@@ -137,9 +140,24 @@ const FeeMgmt = (() => {
             <div style="display:flex;justify-content:flex-end;margin-top:10px">
                 <button id="fee-save-${n.id}" class="btn btn-primary btn-small btn-w-auto"
                         style="padding:8px 18px" onclick="FeeMgmt.saveNigam(${n.id})">
-                    \u{1F4BE} Save
+                    \u{1F4BE} Save flat fees
                 </button>
             </div>
+            <div style="border-top:1px dashed var(--bd);margin:14px 0 10px"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div>
+                    <div style="font-weight:700;font-size:13px">\u{1F415} Per-species &amp; size rates</div>
+                    <div style="font-size:11px;color:var(--tx3);margin-top:2px">
+                        Overrides the flat fee above when a pet matches. Leave blank to fall back.
+                    </div>
+                </div>
+                <button class="btn btn-ghost btn-small btn-w-auto"
+                        style="padding:6px 12px;font-size:12px"
+                        onclick="FeeMgmt.toggleRules(${n.id})">
+                    <span id="fee-rules-toggle-${n.id}">Show \u25BE</span>
+                </button>
+            </div>
+            <div id="fee-rules-${n.id}" style="display:none"></div>
         </div>`;
     }
 
@@ -197,6 +215,138 @@ const FeeMgmt = (() => {
             _render();
         } catch (ex) {
             errEl.textContent = ex.message || "Failed to save fees.";
+            errEl.style.display = "block";
+        } finally {
+            btn.classList.remove("loading");
+            btn.disabled = false;
+        }
+    }
+
+    // ── Per-species / size rate matrix ───────────────────────────────────────
+    // Loaded lazily when the admin clicks "Show" on a nigam card. The GET
+    // returns the full matrix (4 buckets) already padded with nulls, so we
+    // just render inputs directly. Empty inputs are treated as "no override"
+    // on save — the server deletes those rows so we fall back to the flat fee.
+    const RULE_BUCKETS = [
+        { species: "dog",   size_category: "large_aggressive", label: "\u{1F415} Dog \u2014 Large / Aggressive" },
+        { species: "dog",   size_category: "small",            label: "\u{1F429} Dog \u2014 Small" },
+        { species: "cat",   size_category: "single",           label: "\u{1F431} Cat" },
+        { species: "other", size_category: "single",           label: "\u{1F430} Other (Rabbit / Bird / \u2026)" },
+    ];
+
+    async function toggleRules(nigamId) {
+        const host   = document.getElementById(`fee-rules-${nigamId}`);
+        const toggle = document.getElementById(`fee-rules-toggle-${nigamId}`);
+        if (!host) return;
+        if (host.style.display === "none") {
+            host.style.display = "block";
+            toggle.textContent = "Hide \u25B4";
+            if (!host.dataset.loaded) {
+                renderLoading(host);
+                try {
+                    const rules = await AFP.GET(`/api/geo/nigams/${nigamId}/fee-rules`);
+                    _renderRuleMatrix(nigamId, host, rules);
+                    host.dataset.loaded = "1";
+                } catch (ex) {
+                    host.innerHTML = alertBoxHTML("err", "Failed to load rate matrix: " + ex.message);
+                }
+            }
+        } else {
+            host.style.display = "none";
+            toggle.textContent = "Show \u25BE";
+        }
+    }
+
+    function _renderRuleMatrix(nigamId, host, rules) {
+        // Index by (species|size) for quick lookup
+        const byKey = new Map((rules || []).map(r => [`${r.species}|${r.size_category}`, r]));
+        const rows  = RULE_BUCKETS.map(b => {
+            const r    = byKey.get(`${b.species}|${b.size_category}`) || {};
+            const reg  = r.registration_fee != null ? r.registration_fee : "";
+            const ren  = r.renewal_fee      != null ? r.renewal_fee      : "";
+            const trf  = r.transfer_fee     != null ? r.transfer_fee     : "";
+            const rid  = `${b.species}_${b.size_category}`;
+            return `
+            <div style="border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--sf2)">
+                <div style="font-size:13px;font-weight:700;margin-bottom:6px">${b.label}</div>
+                <div class="d-row" style="gap:8px">
+                    ${_ruleInputHTML(nigamId, rid, "reg", "Registration", reg)}
+                    ${_ruleInputHTML(nigamId, rid, "ren", "Renewal",      ren)}
+                    ${_ruleInputHTML(nigamId, rid, "trf", "Transfer",     trf)}
+                </div>
+                <input type="hidden" id="rule-${nigamId}-${rid}-sp"   value="${b.species}" />
+                <input type="hidden" id="rule-${nigamId}-${rid}-size" value="${b.size_category}" />
+            </div>`;
+        }).join("");
+
+        host.innerHTML = `
+            <div class="alert-box alert-info" style="margin-bottom:10px">
+                <span>\u2139\uFE0F</span>
+                <p style="font-size:12px">
+                    Leave a field <strong>blank</strong> to use the flat fee above.
+                    Values here take priority for matching pets.
+                </p>
+            </div>
+            ${rows}
+            <div id="rule-err-${nigamId}" style="color:var(--er);font-size:12px;font-weight:600;
+                                                margin-top:6px;display:none"></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:6px">
+                <button id="rule-save-${nigamId}" class="btn btn-primary btn-small btn-w-auto"
+                        style="padding:8px 18px" onclick="FeeMgmt.saveRules(${nigamId})">
+                    \u{1F4BE} Save rate matrix
+                </button>
+            </div>`;
+    }
+
+    function _ruleInputHTML(nigamId, rid, field, label, value) {
+        return `
+        <div class="field" style="margin-bottom:0;flex:1;min-width:0">
+            <label class="field-label" style="font-size:11px">${escHtml(label)} (\u20B9)</label>
+            <input id="rule-${nigamId}-${rid}-${field}" class="field-input"
+                type="number" step="0.01" min="${FEE_MIN}" max="${FEE_MAX}"
+                placeholder="\u2014"
+                value="${escHtml(String(value))}" />
+        </div>`;
+    }
+
+    async function saveRules(nigamId) {
+        const errEl = document.getElementById(`rule-err-${nigamId}`);
+        const btn   = document.getElementById(`rule-save-${nigamId}`);
+        errEl.style.display = "none";
+        errEl.textContent   = "";
+
+        const rules = [];
+        for (const b of RULE_BUCKETS) {
+            const rid = `${b.species}_${b.size_category}`;
+            const regRaw = document.getElementById(`rule-${nigamId}-${rid}-reg`)?.value;
+            const renRaw = document.getElementById(`rule-${nigamId}-${rid}-ren`)?.value;
+            const trfRaw = document.getElementById(`rule-${nigamId}-${rid}-trf`)?.value;
+            const rowVals = { reg: regRaw, ren: renRaw, trf: trfRaw };
+            for (const [k, v] of Object.entries(rowVals)) {
+                if (v === "" || v == null) continue;
+                const n = Number(v);
+                if (!Number.isFinite(n) || n < FEE_MIN || n > FEE_MAX) {
+                    errEl.textContent = `${b.label} \u2014 ${k} must be between \u20B9${FEE_MIN} and \u20B9${FEE_MAX}.`;
+                    errEl.style.display = "block";
+                    return;
+                }
+            }
+            rules.push({
+                species:          b.species,
+                size_category:    b.size_category,
+                registration_fee: regRaw === "" ? null : Number(regRaw),
+                renewal_fee:      renRaw === "" ? null : Number(renRaw),
+                transfer_fee:     trfRaw === "" ? null : Number(trfRaw),
+            });
+        }
+
+        btn.classList.add("loading");
+        btn.disabled = true;
+        try {
+            const r = await AFP.PUT(`/api/geo/nigams/${nigamId}/fee-rules`, { rules });
+            AFP.tst(`Rate matrix saved (${r.saved} row${r.saved === 1 ? "" : "s"}, ${r.cleared} cleared).`);
+        } catch (ex) {
+            errEl.textContent = ex.message || "Failed to save rate matrix.";
             errEl.style.display = "block";
         } finally {
             btn.classList.remove("loading");
@@ -280,5 +430,5 @@ const FeeMgmt = (() => {
         if (m) m.style.display = "none";
     }
 
-    return { loadFeeMgmt, saveNigam, openHistory, closeHistory };
+    return { loadFeeMgmt, saveNigam, openHistory, closeHistory, toggleRules, saveRules };
 })();

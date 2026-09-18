@@ -168,13 +168,35 @@ public class PaymentModelTests
     private sealed class StubbedPaymentModel : PaymentModel
     {
         public Dictionary<int, (int reg, int ren, int trf)> Fees { get; } = new();
+        // Species/size-aware overrides. Key = (nigamId, purpose, species, sizeCategory).
+        // When set, this wins over the flat `Fees` dict — mirrors the server-side
+        // rule → nigam → default fallback chain.
+        public Dictionary<(int nigamId, string purpose, string species, string size), int> RuleFees { get; } = new();
+
         public StubbedPaymentModel(IConfiguration cfg)
             : base(cfg, new StubHttpClientFactory(), NullLogger<PaymentModel>.Instance) { }
 
-        internal override Task<int> ResolveFeeAsync(string purpose, int? nigamId)
+        internal override Task<int> ResolveFeeAsync(string purpose, int? nigamId, string? species = null, string? breed = null)
         {
-            if (nigamId is null || !Fees.TryGetValue(nigamId.Value, out var f))
-                return base.ResolveFeeAsync(purpose, null);
+            if (nigamId is null) return base.ResolveFeeAsync(purpose, null, species, breed);
+
+            // Tier-1 shim: rule lookup keyed on the classified (species, size).
+            if (!string.IsNullOrEmpty(species))
+            {
+                var sp   = species.ToLowerInvariant() switch { "dog" => "dog", "cat" => "cat", _ => "other" };
+                var b    = (breed ?? "").ToLowerInvariant();
+                string size;
+                if (sp != "dog")                                   size = "single";
+                else if (b.Contains("rottweiler") || b.Contains("pitbull") ||
+                         b.Contains("german shepherd") || b.Contains("labrador") ||
+                         b.Contains("great dane"))                 size = "large_aggressive";
+                else                                               size = "small";
+                if (RuleFees.TryGetValue((nigamId.Value, purpose, sp, size), out var ruleRupees))
+                    return Task.FromResult(ruleRupees);
+            }
+
+            if (!Fees.TryGetValue(nigamId.Value, out var f))
+                return base.ResolveFeeAsync(purpose, null, species, breed);
             var rupees = purpose switch
             {
                 "renewal"  => f.ren,
@@ -251,6 +273,125 @@ public class PaymentModelTests
             new CreateOrderRequest { Purpose = "registration" });
 
         Assert.Equal(PaymentModel.FeeRegistration * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    // ── Per-species / size fee resolution ────────────────────────────────
+    // Verifies the 4-tier fallback (rule → nigam flat → appsettings → const)
+    // for the species+breed matrix requested by the product owner.
+
+    [Fact]
+    public async Task ResolveFee_LargeAggressiveDog_UsesRuleFee()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 200, ren: 150, trf: 100);      // flat fallback
+        model.RuleFees[(5, "registration", "dog", "large_aggressive")] = 500;
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "registration", NigamId = 5,
+                Species = "dog", Breed = "Rottweiler",
+            });
+
+        Assert.Equal(500 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task ResolveFee_SmallDog_UsesRuleFee()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 200, ren: 150, trf: 100);
+        model.RuleFees[(5, "registration", "dog", "small")] = 300;
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "registration", NigamId = 5,
+                Species = "dog", Breed = "Pomeranian",  // not in large list
+            });
+
+        Assert.Equal(300 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task ResolveFee_Cat_UsesSingleRuleFee()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 200, ren: 150, trf: 100);
+        model.RuleFees[(5, "registration", "cat", "single")] = 220;
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "registration", NigamId = 5,
+                Species = "cat", Breed = "Persian",
+            });
+
+        Assert.Equal(220 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task ResolveFee_Rabbit_ClassifiedAsOther()
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 200, ren: 150, trf: 100);
+        model.RuleFees[(5, "registration", "other", "single")] = 150;
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "registration", NigamId = 5,
+                Species = "rabbit",
+            });
+
+        Assert.Equal(150 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task ResolveFee_NoRuleForDog_FallsBackToFlatNigamFee()
+    {
+        // Dog + breed given, but no rule row exists → tier-2 flat fee wins.
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 275, ren: 225, trf: 175); // flat only
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "registration", NigamId = 5,
+                Species = "dog", Breed = "German Shepherd",
+            });
+
+        Assert.Equal(275 * 100, Get<int>(result.Value!, "amount"));
+    }
+
+    [Fact]
+    public async Task ResolveFee_RenewalOfLargeDog_UsesRuleRenewalFee()
+    {
+        // Q5: existing pets renew at the new species/size rate.
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Payment:TestMode"] = "true" })
+            .Build();
+        var model = new StubbedPaymentModel(cfg);
+        model.Fees[5] = (reg: 200, ren: 150, trf: 100);
+        model.RuleFees[(5, "renewal", "dog", "large_aggressive")] = 350;
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest {
+                Purpose = "renewal", NigamId = 5,
+                Species = "dog", Breed = "Pitbull",
+            });
+
+        Assert.Equal(350 * 100, Get<int>(result.Value!, "amount"));
     }
 
     private sealed class StubHttpClientFactory : IHttpClientFactory

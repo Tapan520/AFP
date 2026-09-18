@@ -39,14 +39,16 @@ namespace AFP.Pages
         {
             bool testMode = _cfg.GetValue<bool>("Payment:TestMode", false);
 
-            // Fee resolution — three-tier fallback:
-            //   1. Per-nigam value fetched from the Node backend
-            //      (nigams.registration_fee / renewal_fee / transfer_fee)
-            //   2. appsettings.json override (Payment:RegistrationFee, etc.)
-            //   3. Hard-coded constants (FeeRegistration / FeeRenewal / FeeTransfer)
-            // This lets each municipal corporation set its own tariff while
-            // still guaranteeing a working default for solo dev / demos.
-            int amountRupees = await ResolveFeeAsync(req.Purpose, req.NigamId);
+            // Fee resolution — four-tier fallback:
+            //   1. Per-nigam per-species/size RULE from nigam_fee_rules
+            //      (uses `species` + `breed` on the request to classify the pet)
+            //   2. Per-nigam FLAT fee on the nigams row
+            //   3. appsettings.json override (Payment:RegistrationFee, etc.)
+            //   4. Hard-coded constants (FeeRegistration / FeeRenewal / FeeTransfer)
+            // This lets each municipal corporation set a fine-grained tariff
+            // (Dog-Large vs Dog-Small vs Cat vs Other) while still guaranteeing
+            // a working default for solo dev / demos.
+            int amountRupees = await ResolveFeeAsync(req.Purpose, req.NigamId, req.Species, req.Breed);
             int amountPaise  = amountRupees * 100;
             string currency  = _cfg["Payment:Currency"] ?? Currency;
 
@@ -119,9 +121,9 @@ namespace AFP.Pages
         }
 
         // Resolves the fee in rupees for a given purpose, honouring the
-        // 3-tier chain (nigam DB → appsettings → constant). Made internal +
-        // virtual so unit tests can override the network hop.
-        internal virtual async Task<int> ResolveFeeAsync(string purpose, int? nigamId)
+        // 4-tier chain (rule → nigam flat → appsettings → constant). Made
+        // internal + virtual so unit tests can override the network hop.
+        internal virtual async Task<int> ResolveFeeAsync(string purpose, int? nigamId, string? species = null, string? breed = null)
         {
             int fallback = purpose switch
             {
@@ -134,7 +136,36 @@ namespace AFP.Pages
             try
             {
                 var client = _http.CreateClient("api-proxy");
-                var resp   = await client.GetAsync($"/api/geo/nigams/{nigamId}");
+
+                // ── Tier 1: try the per-species/size rule via /resolve-fee ─
+                // The Node endpoint classifies (species,breed) → (bucket,size),
+                // then looks up the matching nigam_fee_rules row and, if
+                // absent, returns the nigam flat fee. So a single call gives
+                // us tiers 1 + 2 together and tells us which one won.
+                if (!string.IsNullOrWhiteSpace(species))
+                {
+                    var q = new List<string> { $"purpose={Uri.EscapeDataString(purpose ?? "registration")}",
+                                                $"species={Uri.EscapeDataString(species)}" };
+                    if (!string.IsNullOrWhiteSpace(breed))
+                        q.Add($"breed={Uri.EscapeDataString(breed)}");
+                    var resolveResp = await client.GetAsync($"/api/geo/nigams/{nigamId}/resolve-fee?{string.Join("&", q)}");
+                    if (resolveResp.IsSuccessStatusCode)
+                    {
+                        var rj = await resolveResp.Content.ReadFromJsonAsync<JsonElement>();
+                        if (rj.TryGetProperty("amount", out var amtEl))
+                        {
+                            if (amtEl.ValueKind == JsonValueKind.Number && amtEl.TryGetDecimal(out var d))
+                                return (int)Math.Round(d);
+                            if (amtEl.ValueKind == JsonValueKind.String && decimal.TryParse(amtEl.GetString(), out var s))
+                                return (int)Math.Round(s);
+                        }
+                    }
+                }
+
+                // ── Tier 2 fallback: legacy nigam flat fee (when species is
+                //    unknown, e.g. renewal/transfer flows that don't need a
+                //    breed lookup).
+                var resp = await client.GetAsync($"/api/geo/nigams/{nigamId}");
                 if (!resp.IsSuccessStatusCode) return fallback;
                 var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
                 string field = purpose switch
@@ -226,6 +257,10 @@ namespace AFP.Pages
         // Optional — when supplied, the server looks up per-nigam fees and
         // uses those. When null/missing we fall back to appsettings + defaults.
         public int?    NigamId { get; set; }
+        // Species + Breed drive the per-species/size fee rule lookup. When
+        // omitted the server falls back to the nigam's flat fee.
+        public string? Species { get; set; }
+        public string? Breed   { get; set; }
     }
 
     public class VerifyRequest

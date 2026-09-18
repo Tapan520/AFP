@@ -1,0 +1,60 @@
+Add per-species/size fee matrix (Dog Large-Aggressive/Small, Cat, Other)
+
+Extends per-nigam fees with an optional 4-bucket matrix so each Nigam can
+charge different rates for Large/Aggressive vs Small dogs, plus flat rates
+for cats and other species. Fully backward compatible: existing flat fees
+remain the fallback when a rule row is not set.
+
+Backend (Node)
+* New util/breedRules.js — curated ~50-breed Large/Aggressive list
+  (Rottweiler, Pitbull, German Shepherd, Doberman, Great Dane, Mastiffs,
+  Rajapalayam, Tibetan Mastiff, Indian native large breeds, etc.) plus
+  classifier that maps (species, breed) -> (bucket, size_category).
+* New nigam_fee_rules table + unique index — created idempotently on
+  Node boot via the existing migration runner.
+* New endpoints (super_admin OR nigam_admin for own nigam):
+  - GET  /api/geo/nigams/:id/fee-rules      -> full 4-row matrix
+  - PUT  /api/geo/nigams/:id/fee-rules      -> upsert non-empty rows,
+                                                delete all-null rows
+  - GET  /api/geo/nigams/:id/resolve-fee    -> per-citizen fee preview
+    with resolvedFrom ∈ 'rule' | 'nigam' | 'default'
+
+Payment engine (C#)
+* ResolveFeeAsync extended to a 4-tier fallback chain:
+    1) per-species/size rule from nigam_fee_rules
+    2) per-nigam flat fee on the nigams row
+    3) appsettings Payment:*Fee override
+    4) hard-coded constants
+* CreateOrderRequest gains optional Species + Breed. Old callers keep
+  working — Species null => tier 2 lookup as before.
+
+Admin UI (wwwroot/js/afp-fees.js)
+* Each Nigam card now has a collapsible "Per-species & size rates" panel
+  under the existing flat-fee editor:
+  - Dog — Large / Aggressive
+  - Dog — Small
+  - Cat
+  - Other
+* Empty inputs = no override => the row is deleted server-side, so the
+  flat fee wins for that bucket. Same 0–10000 bounds, same audit.
+* Both Super Admin and Nigam Admin can edit both sections for the nigams
+  they own (unchanged from earlier — matches the flat-fee policy).
+
+Citizen UI (wwwroot/js/afp-pets.js)
+* Register New Pet: live per-species/size fee preview banner that
+  recomputes whenever species or breed changes.
+* Renew Licence: fee updates when a pet is picked, using its species+
+  breed for the correct tier (Q5 grandfathering — new rates apply at
+  next renewal only).
+
+Tests
+* 6 new xUnit tests covering: Large/Aggressive dog uses rule, Small dog
+  uses rule, Cat single, Rabbit -> other, no-rule fallback to flat,
+  renewal of large dog uses rule renewal fee.
+* 42/42 pass, 0 build warnings.
+
+Migrations
+* No manual SQL required. Table is created idempotently on Node boot;
+  nothing changes for existing rows in nigams. New nigam_fee_rules table
+  starts empty so every fee resolves via the existing flat-fee path
+  until an admin fills in the matrix.
