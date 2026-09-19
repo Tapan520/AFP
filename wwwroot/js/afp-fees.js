@@ -19,6 +19,16 @@ const FeeMgmt = (() => {
     let _container = null;
     let _nigams    = [];   // enriched with city_name for grouping
     let _cities    = [];
+    let _platformFees = null; // super_admin only
+
+    // Human-readable labels for the platform-fee slots. Order here also
+    // determines the render order in the editor.
+    const PLATFORM_FEE_LABELS = [
+        { type: "doctor_registration", icon: "\u{1FA7A}", label: "Doctor \u2014 Registration (one-time)" },
+        { type: "doctor_renewal",      icon: "\u{1FA7A}", label: "Doctor \u2014 Annual renewal" },
+        { type: "shop_registration",   icon: "\u{1F6D2}", label: "Shop \u2014 Registration (one-time)" },
+        { type: "shop_renewal",        icon: "\u{1F6D2}", label: "Shop \u2014 Annual renewal" },
+    ];
 
     async function loadFeeMgmt(container) {
         _container = container || document.getElementById("admin-body");
@@ -29,11 +39,13 @@ const FeeMgmt = (() => {
         try {
             if (user.role === "super_admin") {
                 // super_admin sees /api/geo/nigams/all which includes counts + fees
-                const [nigams, cities] = await Promise.all([
+                const [nigams, cities, platform] = await Promise.all([
                     AFP.GET("/api/geo/nigams/all"),
                     AFP.GET("/api/geo/cities"),
+                    AFP.GET("/api/platform-fees").catch(() => null),
                 ]);
                 _cities = cities || [];
+                _platformFees = platform;
                 const byCity = new Map(_cities.map(c => [c.id, c.name]));
                 _nigams = (nigams || []).map(n => ({
                     ...n,
@@ -75,9 +87,9 @@ const FeeMgmt = (() => {
         let html = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
                 <div>
-                    <div style="font-size:17px;font-weight:700">\u{1F4B0} Nigam Fees</div>
+                    <div style="font-size:17px;font-weight:700">\u{1F4B0} Fees</div>
                     <div style="font-size:12px;color:var(--tx2);margin-top:2px">
-                        Set the Registration, Renewal and Transfer fees that citizens see at payment time.
+                        Set the fees citizens (pets) and businesses (doctor / shop listings) see at payment time.
                     </div>
                 </div>
             </div>
@@ -85,9 +97,23 @@ const FeeMgmt = (() => {
                 <span>\u2139\uFE0F</span>
                 <p style="font-size:12px">
                     Fees are in <strong>\u20B9 INR</strong>. Allowed range: \u20B9${FEE_MIN}\u2013\u20B9${FEE_MAX}.
-                    Changes take effect immediately for new payments; renewals already paid are not affected.
+                    Changes take effect immediately for new payments; existing paid registrations are not affected.
                 </p>
             </div>`;
+
+        // \u{1F310} Platform fees (super_admin only) \u2014 revenue flows to the AFP portal operator.
+        if (isSA && _platformFees) {
+            html += _platformFeesCardHTML(_platformFees);
+        }
+
+        // \u{1F3DB}\uFE0F Municipal (per-nigam) fees \u2014 revenue flows to the Nigam.
+        if (isSA) {
+            html += `<div style="font-size:12px;font-weight:700;letter-spacing:1px;
+                                 text-transform:uppercase;color:var(--tx3);margin:20px 0 8px">
+                        \u{1F3DB}\uFE0F Municipal fees (per nigam)
+                    </div>`;
+        }
+
 
         for (const [cityName, list] of groups) {
             if (isSA) {
@@ -100,6 +126,149 @@ const FeeMgmt = (() => {
         }
 
         _container.innerHTML = html;
+    }
+
+    // ── Platform-fees card (super_admin only) ────────────────────────────────
+    // One flat rate per fee_type — no per-city variation. This is the AFP
+    // portal-operator revenue: doctor/shop directory listing + annual renewal.
+    function _platformFeesCardHTML(fees) {
+        const byType = new Map((fees || []).map(f => [f.fee_type, f]));
+        const rows = PLATFORM_FEE_LABELS.map(l => {
+            const f      = byType.get(l.type) || {};
+            const amount = f.amount != null ? Number(f.amount) : "";
+            const badge  = f.is_default
+                ? `<span class="badge badge-in" style="margin-left:6px;font-size:10px">default</span>`
+                : "";
+            return `
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600">${l.icon} ${escHtml(l.label)} ${badge}</div>
+                </div>
+                <div class="field" style="margin-bottom:0;width:130px">
+                    <input id="pfee-${l.type}" class="field-input"
+                        type="number" step="0.01" min="${FEE_MIN}" max="${FEE_MAX}"
+                        value="${escHtml(String(amount))}" />
+                </div>
+            </div>`;
+        }).join("");
+
+        return `
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;
+                    text-transform:uppercase;color:var(--tx3);margin:2px 0 8px">
+            \u{1F310} Platform fees (portal-wide)
+        </div>
+        <div class="card" id="platform-fees-card" style="margin-bottom:14px;border:1.5px solid var(--or)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+                <div style="min-width:0">
+                    <div style="font-weight:700;font-size:14px">\u{1F310} Doctor &amp; Shop directory</div>
+                    <div style="font-size:11px;color:var(--tx3);margin-top:2px">
+                        One-time registration + yearly renewal. Revenue: <strong>AFP portal</strong>.
+                    </div>
+                </div>
+                <button class="btn btn-ghost btn-small btn-w-auto"
+                        style="padding:6px 12px;font-size:12px"
+                        onclick="FeeMgmt.openPlatformHistory()">
+                    \u{1F4DC} History
+                </button>
+            </div>
+            ${rows}
+            <div id="pfee-err" style="color:var(--er);font-size:12px;font-weight:600;
+                                       margin-top:6px;display:none"></div>
+            <div style="display:flex;justify-content:flex-end;margin-top:10px">
+                <button id="pfee-save-btn" class="btn btn-primary btn-small btn-w-auto"
+                        style="padding:8px 18px" onclick="FeeMgmt.savePlatformFees()">
+                    \u{1F4BE} Save platform fees
+                </button>
+            </div>
+        </div>`;
+    }
+
+    async function savePlatformFees() {
+        const errEl = document.getElementById("pfee-err");
+        const btn   = document.getElementById("pfee-save-btn");
+        errEl.style.display = "none";
+        errEl.textContent   = "";
+
+        const fees = [];
+        for (const l of PLATFORM_FEE_LABELS) {
+            const raw = document.getElementById(`pfee-${l.type}`)?.value;
+            if (raw === "" || raw == null) continue;   // skip blanks
+            const n = Number(raw);
+            if (!Number.isFinite(n) || n < FEE_MIN || n > FEE_MAX) {
+                errEl.textContent = `${l.label} must be a number between \u20B9${FEE_MIN} and \u20B9${FEE_MAX}.`;
+                errEl.style.display = "block";
+                return;
+            }
+            fees.push({ fee_type: l.type, amount: n });
+        }
+        if (!fees.length) {
+            errEl.textContent = "Nothing to save — enter at least one value.";
+            errEl.style.display = "block";
+            return;
+        }
+
+        btn.classList.add("loading");
+        btn.disabled = true;
+        try {
+            const r = await AFP.PUT("/api/platform-fees", { fees });
+            AFP.tst(r.updated > 0
+                ? `Platform fees updated (${r.updated} change${r.updated === 1 ? "" : "s"}).`
+                : "No platform fees changed.");
+            // Refresh cached copy so the "default" badge and current amounts
+            // update on the next render without another manual reload.
+            try { _platformFees = await AFP.GET("/api/platform-fees"); } catch { }
+            _render();
+        } catch (ex) {
+            errEl.textContent = ex.message || "Failed to save platform fees.";
+            errEl.style.display = "block";
+        } finally {
+            btn.classList.remove("loading");
+            btn.disabled = false;
+        }
+    }
+
+    async function openPlatformHistory() {
+        const modal   = _ensureHistoryModal();
+        const titleEl = document.getElementById("fee-history-title");
+        if (titleEl) titleEl.textContent = "\u{1F4DC} Platform-fee History";
+        const body    = document.getElementById("fee-history-body");
+        renderLoading(body);
+        modal.style.display = "flex";
+        try {
+            const rows = await AFP.GET("/api/platform-fees/history");
+            if (!rows.length) {
+                renderEmpty(body, "\u{1F4DC}", "No platform-fee changes recorded yet.");
+                return;
+            }
+            const labelOf = Object.fromEntries(
+                PLATFORM_FEE_LABELS.map(l => [l.type, l.label])
+            );
+            body.innerHTML = rows.map(r => {
+                const when = new Date(r.changed_at).toLocaleString("en-IN", {
+                    day: "2-digit", month: "short", year: "numeric",
+                    hour: "2-digit", minute: "2-digit"
+                });
+                const from = r.old_value != null ? `\u20B9${Number(r.old_value).toFixed(2)}` : "\u2014";
+                const to   = `\u20B9${Number(r.new_value).toFixed(2)}`;
+                return `
+                <div class="card" style="margin-bottom:8px">
+                    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600">
+                        <span>${escHtml(labelOf[r.fee_type] || r.fee_type)}</span>
+                        <span style="color:var(--tx3);font-weight:400;font-size:11px">${escHtml(when)}</span>
+                    </div>
+                    <div style="margin-top:4px;font-size:13px">
+                        <span style="color:var(--tx3)">${escHtml(from)}</span>
+                        &nbsp;\u2192&nbsp;
+                        <strong>${escHtml(to)}</strong>
+                    </div>
+                    <div style="margin-top:3px;font-size:11px;color:var(--tx3)">
+                        by ${escHtml(r.changed_by_name || "\u2014")}
+                    </div>
+                </div>`;
+            }).join("");
+        } catch (ex) {
+            body.innerHTML = alertBoxHTML("err", "Failed to load history: " + ex.message);
+        }
     }
 
     function _nigamCardHTML(n) {
@@ -354,34 +523,40 @@ const FeeMgmt = (() => {
         }
     }
 
+    // Lazy-create the shared fee-history modal shell using the app's standard
+    // modal-bg / modal-sheet classes so it looks and behaves like every other
+    // dialog (bottom sheet on mobile, centred on desktop). Reused by both the
+    // per-nigam history and the platform-fees history.
+    function _ensureHistoryModal() {
+        let modal = document.getElementById("fee-history-modal");
+        if (modal) return modal;
+        const shell = document.createElement("div");
+        shell.innerHTML = `
+            <div id="fee-history-modal" class="modal-bg" style="display:none">
+                <div class="modal-sheet">
+                    <div class="modal-handle"></div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;
+                                margin-bottom:14px">
+                        <div id="fee-history-title" style="font-size:16px;font-weight:700">\u{1F4DC} Fee History</div>
+                        <button style="background:none;border:none;font-size:20px;
+                                       color:var(--tx3);cursor:pointer;line-height:1"
+                            onclick="FeeMgmt.closeHistory()">&times;</button>
+                    </div>
+                    <div id="fee-history-body" class="scroll"
+                         style="max-height:60vh;overflow-y:auto;padding-right:4px"></div>
+                    <button class="btn btn-ghost mt-8"
+                            onclick="FeeMgmt.closeHistory()">Close</button>
+                </div>
+            </div>`;
+        document.body.appendChild(shell.firstElementChild);
+        return document.getElementById("fee-history-modal");
+    }
+
     // ── History modal ────────────────────────────────────────────────────────
     async function openHistory(nigamId) {
-        let modal = document.getElementById("fee-history-modal");
-        if (!modal) {
-            // Lazy-create modal shell using the app's standard modal-bg /
-            // modal-sheet classes so it looks and behaves like every other
-            // dialog (bottom sheet on mobile, centred on desktop).
-            const shell = document.createElement("div");
-            shell.innerHTML = `
-                <div id="fee-history-modal" class="modal-bg" style="display:none">
-                    <div class="modal-sheet">
-                        <div class="modal-handle"></div>
-                        <div style="display:flex;align-items:center;justify-content:space-between;
-                                    margin-bottom:14px">
-                            <div style="font-size:16px;font-weight:700">\u{1F4DC} Fee History</div>
-                            <button style="background:none;border:none;font-size:20px;
-                                           color:var(--tx3);cursor:pointer;line-height:1"
-                                onclick="FeeMgmt.closeHistory()">&times;</button>
-                        </div>
-                        <div id="fee-history-body" class="scroll"
-                             style="max-height:60vh;overflow-y:auto;padding-right:4px"></div>
-                        <button class="btn btn-ghost mt-8"
-                                onclick="FeeMgmt.closeHistory()">Close</button>
-                    </div>
-                </div>`;
-            document.body.appendChild(shell.firstElementChild);
-            modal = document.getElementById("fee-history-modal");
-        }
+        const modal    = _ensureHistoryModal();
+        const titleEl  = document.getElementById("fee-history-title");
+        if (titleEl) titleEl.textContent = "\u{1F4DC} Fee History";
         const body = document.getElementById("fee-history-body");
         renderLoading(body);
         modal.style.display = "flex";
@@ -430,5 +605,6 @@ const FeeMgmt = (() => {
         if (m) m.style.display = "none";
     }
 
-    return { loadFeeMgmt, saveNigam, openHistory, closeHistory, toggleRules, saveRules };
+    return { loadFeeMgmt, saveNigam, openHistory, closeHistory, toggleRules, saveRules,
+             savePlatformFees, openPlatformHistory };
 })();

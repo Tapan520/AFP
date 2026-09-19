@@ -24,8 +24,12 @@ const doctorsRouter     = require("./routes/doctors");
 const shopsRouter       = require("./routes/shops");
 const reportsRouter     = require("./routes/reports");
 const discussionsRouter = require("./routes/discussions");
-const billingRouter     = require("./routes/billing");
-const adminSearchRouter = require("./routes/adminSearch");
+const billingRouter       = require("./routes/billing");
+const adminSearchRouter   = require("./routes/adminSearch");
+const platformFeesRouter  = require("./routes/platformFees");
+const businessRouter      = require("./routes/business");
+const scheduler           = require("./jobs/scheduler");
+const { sendEmail }       = require("./utils/email");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -278,6 +282,14 @@ app.use("/api/admin/billing", billingRouter);
 // Global cross-search across users / pets / doctors / shops (ward_admin+)
 app.use("/api/admin/search", adminSearchRouter);
 
+// Platform fees — doctor / shop registration + renewal fees paid to AFP
+// (portal operator). Read: any authenticated user. Write: super_admin only.
+app.use("/api/platform-fees", platformFeesRouter);
+
+// Business (doctor / shop) directory applications — self-signup pipeline
+// with super_admin approval queue. Payments flow to the AFP Razorpay account.
+app.use("/api/business", businessRouter);
+
 // ?? 404 catch-all ?????????????????????????????????????????????????????????????
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
@@ -349,6 +361,67 @@ async function runMigrations() {
         changed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_nfh_nigam_changed ON nigam_fee_history(nigam_id, changed_at)`,
+    // ── Platform fees (portal-owner revenue, not municipal) ────────────────
+    // One row per fee_type (doctor_registration / doctor_renewal / shop_*).
+    // Missing rows fall back to hard-coded defaults in routes/platformFees.js
+    // so the portal keeps working before any admin has ever edited them.
+    `CREATE TABLE IF NOT EXISTS platform_fees (
+        fee_type    VARCHAR(40)   PRIMARY KEY,
+        amount      NUMERIC(10,2) NOT NULL,
+        updated_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_by  INTEGER       NULL REFERENCES users(id) ON DELETE SET NULL
+    )`,
+    // Append-only audit log for platform_fees changes.
+    `CREATE TABLE IF NOT EXISTS platform_fee_history (
+        id          SERIAL        PRIMARY KEY,
+        fee_type    VARCHAR(40)   NOT NULL,
+        old_value   NUMERIC(10,2) NULL,
+        new_value   NUMERIC(10,2) NOT NULL,
+        changed_by  INTEGER       NULL REFERENCES users(id) ON DELETE SET NULL,
+        changed_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_pfh_type_changed ON platform_fee_history(fee_type, changed_at)`,
+    // ── Phase 2: doctor / shop directory application pipeline ─────────────
+    // One row per applicant per attempted listing. State machine:
+    //   draft → docs_uploaded → paid → approved | rejected
+    // On approve, `published_ref_id` points to the resulting doctors.id or
+    // shops.id row so the admin UI can jump straight to it.
+    `CREATE TABLE IF NOT EXISTS business_applications (
+        id                   SERIAL       PRIMARY KEY,
+        type                 VARCHAR(10)  NOT NULL,
+        applicant_id         INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name                 VARCHAR(200) NOT NULL,
+        qualification        VARCHAR(200) NULL,
+        specialization       VARCHAR(200) NULL,
+        clinic_name          VARCHAR(200) NULL,
+        speciality           VARCHAR(200) NULL,
+        owner_name           VARCHAR(200) NULL,
+        address              TEXT         NULL,
+        mobile               VARCHAR(20)  NOT NULL,
+        timings              VARCHAR(200) NULL,
+        is_24hr              BOOLEAN      NOT NULL DEFAULT FALSE,
+        licence_no           VARCHAR(80)  NULL,
+        docs_url             VARCHAR(500) NULL,
+        city_id              INTEGER      NULL REFERENCES cities(id) ON DELETE SET NULL,
+        nigam_id             INTEGER      NULL REFERENCES nigams(id) ON DELETE SET NULL,
+        zone_id              INTEGER      NULL REFERENCES zones(id)  ON DELETE SET NULL,
+        ward_id              INTEGER      NULL REFERENCES wards(id)  ON DELETE SET NULL,
+        status               VARCHAR(20)  NOT NULL DEFAULT 'draft',
+        payment_id           VARCHAR(80)  NULL,
+        order_id             VARCHAR(80)  NULL,
+        reject_reason        TEXT         NULL,
+        refund_status        VARCHAR(20)  NULL,
+        reviewed_by          INTEGER      NULL REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at          TIMESTAMPTZ  NULL,
+        published_ref_id     INTEGER      NULL,
+        licence_expiry_date  DATE         NULL,
+        admin_note           TEXT         NULL,
+        created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ba_status  ON business_applications(status, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_ba_type    ON business_applications(type,   status)`,
+    `CREATE INDEX IF NOT EXISTS idx_ba_applicant ON business_applications(applicant_id, created_at)`,
     // ── Per-species / per-size fee rules (extends per-nigam flat fees) ────
     // When no matching row exists here, the payment engine falls back to the
     // nigams.registration_fee / renewal_fee / transfer_fee columns (backwards
@@ -474,6 +547,17 @@ async function runMigrations() {
   await ensureColumn("nigams", "fees_updated_at", "TIMESTAMP NULL");
   await ensureColumn("nigams", "fees_updated_by", "INT NULL");
 
+  // ── Phase 2: extend doctors/shops with licence lifecycle columns ────────
+  // These MUST be added via ensureColumn() rather than raw ALTER TABLE
+  // IF NOT EXISTS, because MySQL <8.0 silently accepts the syntax and does
+  // nothing (leaving the columns missing on Railway).
+  await ensureColumn("doctors", "licence_no",            "VARCHAR(80) NULL");
+  await ensureColumn("doctors", "licence_expiry_date",   "DATE NULL");
+  await ensureColumn("doctors", "source_application_id", "INT NULL");
+  await ensureColumn("shops",   "licence_no",            "VARCHAR(80) NULL");
+  await ensureColumn("shops",   "licence_expiry_date",   "DATE NULL");
+  await ensureColumn("shops",   "source_application_id", "INT NULL");
+
   console.log("Migrations applied.");
 }
 
@@ -505,11 +589,13 @@ async function runMigrationsSafely() {
 }
 
 runMigrationsSafely().then(() => {
+  scheduler.start(pool, sendEmail);
   app.listen(PORT, () => {
     console.log(`AFP API listening on port ${PORT}`);
   });
 }).catch((err) => {
   console.error("Migration failed, starting anyway:", err.message);
+  scheduler.start(pool, sendEmail);
   app.listen(PORT, () => {
     console.log(`AFP API listening on port ${PORT}`);
   });

@@ -1,4 +1,4 @@
-// ?? afp-screens.js � Orchestrator ????????????????????????????????????????????
+// ?? afp-screens.js — Orchestrator ????????????????????????????????????????????
 // Contains only the screens that don't belong to a dedicated module:
 //   Dashboard, Profile, Search Pet, Pet Meter, Search Doctor, Search Shop.
 // Auth screens  ? afp-auth.js
@@ -35,6 +35,39 @@ async function loadDashboard() {
                 <span style="color:#92400E">&#8250;</span>
             </div>`;
         }
+
+        // ── Business listing renewal reminder ────────────────────────────
+        // Shown to owners of any doctor / shop listing that expires in the
+        // next 30 days (or has already lapsed). Fire-and-forget: any error
+        // here should never block the dashboard from rendering.
+        let renewalBanner = "";
+        try {
+            const listings = await AFP.GET("/api/business/my-listings");
+            const due = (listings || []).filter(l => l.needs_renewal);
+            if (due.length) {
+                const l   = due[0];
+                const dys = l.days_to_expiry;
+                const msg = dys < 0
+                    ? `${escHtml(l.name)} listing EXPIRED ${Math.abs(dys)} day${Math.abs(dys) === 1 ? "" : "s"} ago`
+                    : dys === 0
+                    ? `${escHtml(l.name)} listing expires TODAY`
+                    : `${escHtml(l.name)} listing expires in ${dys} day${dys === 1 ? "" : "s"}`;
+                const isUrgent = dys <= 7;
+                renewalBanner = `
+                <div class="vax-alert${isUrgent ? " vax-alert-danger" : ""}"
+                     onclick="window.location.href='/RegisterBusiness'">
+                    <span style="font-size:17px">${dys < 0 ? "&#x274C;" : "&#x23F0;"}</span>
+                    <div style="flex:1">
+                        <div style="font-weight:600;color:${isUrgent ? "var(--er)" : "#92400E"};font-size:13px">${msg}</div>
+                        <div style="font-size:11px;color:${isUrgent ? "var(--er)" : "#92400E"};margin-top:1px">
+                            Tap to renew${due.length > 1 ? ` (+${due.length - 1} more)` : ""}
+                        </div>
+                    </div>
+                    <span style="color:${isUrgent ? "var(--er)" : "#92400E"}">&#8250;</span>
+                </div>`;
+            }
+        } catch { /* no-op — user may have no business listings */ }
+
 
         const statsHTML = [
             ["&#x1F43E;", pets.length,     "My pets"],
@@ -106,6 +139,7 @@ async function loadDashboard() {
                 <div style="font-size:13px;color:var(--tx2)">Manage your registered pets</div>
             </div>
             ${vaxBanner}
+            ${renewalBanner}
             <div class="sgrid">${statsHTML}</div>
             <div class="p-18" style="padding-top:0">
                 <div class="sec-hdr">

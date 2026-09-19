@@ -476,3 +476,5 @@ router.put("/me", authenticate, async (req, res) => {
 module.exports = router;
 module.exports.validatePassword = validatePassword;
 module.exports.PASSWORD_MSG     = PASSWORD_MSG;
+module.exports.makeAccessToken  = makeAccessToken;
+module.exports.issueRefreshToken = issueRefreshToken;

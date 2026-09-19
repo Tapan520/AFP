@@ -10,6 +10,18 @@ namespace AFP.Pages
     /// Secure server-side proxy for Razorpay.
     /// POST /api/payment?handler=CreateOrder  ? creates Razorpay order (Key Secret stays on server)
     /// POST /api/payment?handler=Verify       ? verifies HMAC-SHA256 signature
+    ///
+    /// Two-account routing (added Phase 1, backward compatible):
+    ///   • "registration" / "renewal" / "transfer" —→ Municipal Razorpay account
+    ///     (fees flow to the Nigam's bank account — pets are a municipal levy).
+    ///   • "doctor_registration" / "doctor_renewal" / "shop_registration"
+    ///     / "shop_renewal" —→ Platform Razorpay account (fees flow to AFP).
+    ///
+    /// Config precedence for each account:
+    ///   Razorpay:Municipal:KeyId / KeySecret          (preferred, new)
+    ///   Razorpay:KeyId          / KeySecret            (legacy fallback)
+    /// The legacy pair keeps existing deployments working with zero config
+    /// change until the AFP Razorpay merchant account is provisioned.
     /// </summary>
     [IgnoreAntiforgeryToken]
     public class PaymentModel : PageModel
@@ -17,7 +29,23 @@ namespace AFP.Pages
         public const int FeeRegistration = 200;
         public const int FeeRenewal      = 150;
         public const int FeeTransfer     = 100;
+        // Platform-fee defaults (doctor / shop directory) — mirror the Node
+        // fallback in routes/platformFees.js so the two backends stay aligned.
+        public const int FeeDoctorRegistration = 500;
+        public const int FeeDoctorRenewal      = 300;
+        public const int FeeShopRegistration   = 300;
+        public const int FeeShopRenewal        = 200;
         public const string Currency     = "INR";
+
+        // Purposes that route to the AFP-owned platform Razorpay account.
+        private static readonly HashSet<string> PlatformPurposes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "doctor_registration", "doctor_renewal",
+            "shop_registration",   "shop_renewal",
+        };
+
+        internal static bool IsPlatformPurpose(string? purpose) =>
+            purpose is not null && PlatformPurposes.Contains(purpose);
 
         private const string TestOrderPrefix = "TEST_ORDER_";
 
@@ -39,16 +67,15 @@ namespace AFP.Pages
         {
             bool testMode = _cfg.GetValue<bool>("Payment:TestMode", false);
 
-            // Fee resolution — four-tier fallback:
-            //   1. Per-nigam per-species/size RULE from nigam_fee_rules
-            //      (uses `species` + `breed` on the request to classify the pet)
-            //   2. Per-nigam FLAT fee on the nigams row
-            //   3. appsettings.json override (Payment:RegistrationFee, etc.)
-            //   4. Hard-coded constants (FeeRegistration / FeeRenewal / FeeTransfer)
-            // This lets each municipal corporation set a fine-grained tariff
-            // (Dog-Large vs Dog-Small vs Cat vs Other) while still guaranteeing
-            // a working default for solo dev / demos.
-            int amountRupees = await ResolveFeeAsync(req.Purpose, req.NigamId, req.Species, req.Breed);
+            // Fee resolution — route by purpose:
+            //   • Municipal purposes (pet registration/renewal/transfer)
+            //     use the existing 4-tier chain (rule → nigam → config → const).
+            //   • Platform purposes (doctor_* / shop_*) use the platform-fee
+            //     lookup (platform table → config → const). NigamId is ignored
+            //     for these because the fee is portal-wide, not per-city.
+            int amountRupees = IsPlatformPurpose(req.Purpose)
+                ? await ResolvePlatformFeeAsync(req.Purpose)
+                : await ResolveFeeAsync(req.Purpose, req.NigamId, req.Species, req.Breed);
             int amountPaise  = amountRupees * 100;
             string currency  = _cfg["Payment:Currency"] ?? Currency;
 
@@ -73,10 +100,7 @@ namespace AFP.Pages
             // ── PRODUCTION MODE: call real Razorpay API ──────────────────────
             try
             {
-                var keyId     = _cfg["Razorpay:KeyId"]
-                    ?? throw new InvalidOperationException("Razorpay:KeyId not configured.");
-                var keySecret = _cfg["Razorpay:KeySecret"]
-                    ?? throw new InvalidOperationException("Razorpay:KeySecret not configured.");
+                var (keyId, keySecret) = ResolveRazorpayCredentials(req.Purpose);
 
                 var client    = _http.CreateClient();
                 var authBytes = Encoding.ASCII.GetBytes($"{keyId}:{keySecret}");
@@ -118,6 +142,71 @@ namespace AFP.Pages
                 _log.LogError(ex, "CreateOrder failed");
                 return StatusCode(500, new { error = "Could not initiate payment. Please try again." });
             }
+        }
+
+        // Picks the Razorpay merchant credentials for a given purpose. New
+        // deployments should populate Razorpay:Municipal:* and Razorpay:Platform:*
+        // separately so pet fees land in the Nigam account and directory fees
+        // land in the AFP account. Falls back to the legacy Razorpay:KeyId /
+        // KeySecret pair for backward compatibility with existing deployments.
+        internal virtual (string keyId, string keySecret) ResolveRazorpayCredentials(string? purpose)
+        {
+            var scope = IsPlatformPurpose(purpose) ? "Platform" : "Municipal";
+            var keyId     = _cfg[$"Razorpay:{scope}:KeyId"]
+                            ?? _cfg["Razorpay:KeyId"]
+                            ?? throw new InvalidOperationException(
+                                $"Razorpay:{scope}:KeyId (or Razorpay:KeyId fallback) not configured.");
+            var keySecret = ResolveRazorpayKeySecret(purpose);
+            return (keyId, keySecret);
+        }
+
+        // Verify only needs the secret, so expose it separately to avoid
+        // failing when only Razorpay:KeySecret is present (unit-test config).
+        internal virtual string ResolveRazorpayKeySecret(string? purpose)
+        {
+            var scope = IsPlatformPurpose(purpose) ? "Platform" : "Municipal";
+            return _cfg[$"Razorpay:{scope}:KeySecret"]
+                   ?? _cfg["Razorpay:KeySecret"]
+                   ?? throw new InvalidOperationException(
+                       $"Razorpay:{scope}:KeySecret (or Razorpay:KeySecret fallback) not configured.");
+        }
+
+        // Resolves a portal-level fee (doctor / shop) in rupees.
+        //   1. platform_fees row via /api/platform-fees/resolve
+        //   2. appsettings.json override (Payment:DoctorRegistrationFee, etc.)
+        //   3. Hard-coded constant
+        internal virtual async Task<int> ResolvePlatformFeeAsync(string purpose)
+        {
+            int fallback = (purpose ?? "").ToLowerInvariant() switch
+            {
+                "doctor_registration" => _cfg.GetValue<int>("Payment:DoctorRegistrationFee", FeeDoctorRegistration),
+                "doctor_renewal"      => _cfg.GetValue<int>("Payment:DoctorRenewalFee",      FeeDoctorRenewal),
+                "shop_registration"   => _cfg.GetValue<int>("Payment:ShopRegistrationFee",   FeeShopRegistration),
+                "shop_renewal"        => _cfg.GetValue<int>("Payment:ShopRenewalFee",        FeeShopRenewal),
+                _                     => FeeDoctorRegistration,
+            };
+            try
+            {
+                var client = _http.CreateClient("api-proxy");
+                var resp   = await client.GetAsync(
+                    $"/api/platform-fees/resolve?feeType={Uri.EscapeDataString(purpose ?? "")}");
+                if (resp.IsSuccessStatusCode)
+                {
+                    var j = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                    if (j.TryGetProperty("amount", out var amtEl))
+                    {
+                        if (amtEl.ValueKind == JsonValueKind.Number && amtEl.TryGetDecimal(out var d))
+                            return (int)Math.Round(d);
+                        if (amtEl.ValueKind == JsonValueKind.String && decimal.TryParse(amtEl.GetString(), out var s))
+                            return (int)Math.Round(s);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Platform fee lookup failed for purpose={Purpose}; using fallback {Rupees}", purpose, fallback);
+            }
+            return fallback;
         }
 
         // Resolves the fee in rupees for a given purpose, honouring the
@@ -213,8 +302,7 @@ namespace AFP.Pages
                 }
 
                 // Real Razorpay HMAC-SHA256 verification
-                var keySecret = _cfg["Razorpay:KeySecret"]
-                    ?? throw new InvalidOperationException("Razorpay:KeySecret not configured.");
+                var keySecret = ResolveRazorpayKeySecret(req.Purpose);
 
                 var message  = $"{req.OrderId}|{req.PaymentId}";
                 var keyBytes = Encoding.UTF8.GetBytes(keySecret);
@@ -268,6 +356,11 @@ namespace AFP.Pages
         public string OrderId   { get; set; } = "";
         public string PaymentId { get; set; } = "";
         public string? Signature { get; set; }
+        // Same purpose value the client sent to CreateOrder. Used to pick the
+        // right Razorpay account for signature verification (Municipal vs
+        // Platform). Optional for backward compatibility — missing purpose
+        // falls back to the legacy single-account credentials.
+        public string? Purpose  { get; set; }
     }
 }
 

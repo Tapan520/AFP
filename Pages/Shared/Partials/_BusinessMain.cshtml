@@ -1,0 +1,85 @@
+@* Business (Vet / Shop) landing screens for users whose citizen account is
+   linked to a business_applications row. See wwwroot/js/afp-business.js for
+   the loader logic and post-login routing. *@
+
+<!-- --- SCREEN: APPLICATION STATUS --------------------------------------- -->
+<div id="screen-appStatus" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="appStatusBack()">&#x2190;</button>
+            <span class="topbar-title">Your Application</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="appstatus-body" class="scroll p-18 pb-32"></div>
+</div>
+
+<!-- --- SCREEN: VET / DOCTOR HOME --------------------------------------- -->
+<div id="screen-vetHome" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">&#x1FA7A;</div>
+            <span class="topbar-title">Vet Portal</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="vethome-body" class="scroll" style="padding-bottom:70px"></div>
+    <div class="bnav">
+        <div class="bnav-item active" onclick="AFP.go('vetHome')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+        <div class="bnav-item" onclick="AFP.go('appStatus')"><span class="bnav-icon">&#x1FA7A;</span><span class="bnav-lbl">Listing</span></div>
+        <div class="bnav-item" onclick="AFP.logout()"><span class="bnav-icon">&#x1F6AA;</span><span class="bnav-lbl">Logout</span></div>
+    </div>
+</div>
+
+<!-- --- SCREEN: SHOP OWNER HOME ----------------------------------------- -->
+<div id="screen-shopHome" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">&#x1F6D2;</div>
+            <span class="topbar-title">Shop Portal</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="shophome-body" class="scroll" style="padding-bottom:70px"></div>
+    <div class="bnav">
+        <div class="bnav-item active" onclick="AFP.go('shopHome')"><span class="bnav-icon">&#x1F3E0;</span><span class="bnav-lbl">Home</span></div>
+        <div class="bnav-item" onclick="AFP.go('appStatus')"><span class="bnav-icon">&#x1F6D2;</span><span class="bnav-lbl">Listing</span></div>
+        <div class="bnav-item" onclick="AFP.logout()"><span class="bnav-icon">&#x1F6AA;</span><span class="bnav-lbl">Logout</span></div>
+    </div>
+</div>
+
+<!-- --- SCREEN: PUBLIC LISTING PREVIEW ---------------------------------- -->
+<div id="screen-listingPreview" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="businessBackHome()">&#x2190;</button>
+            <span class="topbar-title">Public Preview</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="listing-preview-body" class="scroll p-18 pb-32"></div>
+</div>
+
+<!-- --- SCREEN: MANAGE LISTING ------------------------------------------ -->
+<div id="screen-manageListing" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="businessBackHome()">&#x2190;</button>
+            <span class="topbar-title">Manage Listing</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="manage-listing-body" class="scroll p-18 pb-32"></div>
+</div>
+
+<!-- --- SCREEN: RENEW LISTING ------------------------------------------- -->
+<div id="screen-renewListing" class="afp-screen screen d-none">
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="back-btn" onclick="businessBackHome()">&#x2190;</button>
+            <span class="topbar-title">Renew Listing</span>
+        </div>
+        <button class="icon-btn" title="Logout" onclick="AFP.logout()">&#x1F6AA;</button>
+    </div>
+    <div id="renew-listing-body" class="scroll p-18 pb-32"></div>
+</div>

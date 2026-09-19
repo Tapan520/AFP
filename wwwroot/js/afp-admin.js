@@ -93,6 +93,7 @@ const tabs = [
     ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
     ...(canEditFees    ? [{ key: "fees",      label: "&#x1F4B0; Fees"        }] : []),
     ...(isSA ? [{ key: "cities",    label: "Cities"       }] : []),
+    ...(isSA ? [{ key: "listings",  label: "\ud83d\udccb Listings" }] : []),
     ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
     ...(isSA ? [{ key: "shops",     label: "+ Shops"      }] : []),
     ...(isSA ? [{ key: "analytics", label: "&#x1F4CA; Stats" }] : []),
@@ -239,6 +240,12 @@ async function renderAdminTab(tab) {
     } else if (tab === "cities") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await renderGeoManager(body);
+
+    } else if (tab === "listings") {
+        // Vet / shop application queue — super_admin only. The BusinessMgmt
+        // module gates access again server-side; this is just the UI shortcut.
+        if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
+        await BusinessMgmt.loadBusinessMgmt(body);
 
     } else if (tab === "doctors") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }

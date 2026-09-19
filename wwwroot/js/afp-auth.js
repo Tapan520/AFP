@@ -24,7 +24,11 @@ function initLogin() {
                 identifier: id, password: pw, remember,
             });
             AFP.login(user, token, refreshToken, remember);
-            AFP.go(user.role === "citizen" ? "dashboard" : "admin");
+            if (typeof routeAfterLogin === "function") {
+                await routeAfterLogin(user);
+            } else {
+                AFP.go(user.role === "citizen" ? "dashboard" : "admin");
+            }
         } catch (ex) {
             err.innerHTML = alertBoxHTML("err", ex.message || "Login failed");
         } finally { btn.classList.remove("loading"); }

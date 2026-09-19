@@ -1,4 +1,4 @@
-﻿﻿// ?? AFP CORE - API, Auth, Router, Toast ???????????????????????????????????????
+// ?? AFP CORE - API, Auth, Router, Toast ???????????????????????????????????????
 const AFP = (() => {
 // Relative URLs - all calls route through the .NET proxy (dev->localhost:3000, prod->Railway).
 // This ensures the JWT is signed and verified by the SAME backend - fixes "Invalid or expired token".
@@ -135,6 +135,12 @@ async function uploadFile(path, file, fieldName = "photo") {
                 emergencyVet:  loadEmergencyVet,
                 microchip:     loadMicrochip,
                 events:        loadEvents,
+                vetHome:       typeof loadVetHome    === "function" ? loadVetHome    : null,
+                shopHome:      typeof loadShopHome   === "function" ? loadShopHome   : null,
+                appStatus:     typeof loadAppStatus  === "function" ? loadAppStatus  : null,
+                listingPreview:typeof loadListingPreview === "function" ? loadListingPreview : null,
+                manageListing: typeof loadManageListing  === "function" ? loadManageListing  : null,
+                renewListing:  typeof loadRenewListing   === "function" ? loadRenewListing   : null,
             };
             if (loaders[screen]) loaders[screen]();
         } else {
