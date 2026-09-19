@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using AFP.Services;
 using Microsoft.AspNetCore.Hosting;
@@ -21,7 +21,7 @@ namespace AFP.Tests;
 /// </summary>
 public sealed class EnhancementsSmokeTests
 {
-    // ?? Repo root (�\bin\Debug\net8.0 ? �\ ) ????????????????????????????????
+    // ?? Repo root (â€¦\bin\Debug\net8.0 ? â€¦\ ) ????????????????????????????????
     private static readonly string RepoRoot = Path.GetFullPath(
         Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
@@ -49,7 +49,7 @@ public sealed class EnhancementsSmokeTests
                 page.Margin(2, Unit.Centimetre);
                 page.Content().Column(col =>
                 {
-                    col.Item().Text("All For Pets � Licence Certificate (test)");
+                    col.Item().Text("All For Pets â€” Licence Certificate (test)");
                     col.Item().Image(qrPng);
                 });
             });
@@ -106,43 +106,9 @@ public sealed class EnhancementsSmokeTests
         // Old placeholder grid renderer must be gone
         Assert.DoesNotContain("qr-cell\" style=\"background:${on", js);
     }
+    // #3 Multi-language removed � English/Hindi runtime translator dropped.
+    // The corresponding tests are intentionally deleted.
 
-    // ?? #3 Multi-language (EN / HI) ????????????????????????????????????????
-    [Fact]
-    public void I18nModule_ExistsWithEnglishAndHindiDictionaries()
-    {
-        var js = File.ReadAllText(Path.Combine(RepoRoot, "wwwroot", "js", "afp-i18n.js"));
-        Assert.Contains("en:", js);
-        Assert.Contains("hi:", js);
-        Assert.Contains("setLang", js);
-        Assert.Contains("localStorage",  js);
-        Assert.Contains("afp_lang",      js);
-        // Sanity: at least a few known keys present in both languages
-        foreach (var key in new[] { "btn.login", "btn.logout", "nav.home", "pet.qrTitle" })
-        {
-            Assert.Contains("\"" + key + "\"", js);
-        }
-        // Hindi Devanagari present � stored as \uXXXX escapes so the file
-        // stays pure ASCII on disk. Verify escape sequences fall in the
-        // Devanagari range (U+0900�U+097F) at least a few times.
-        var devanagariEscapes = System.Text.RegularExpressions.Regex.Matches(
-            js, @"\\u09[0-7][0-9A-Fa-f]");
-        Assert.True(devanagariEscapes.Count > 20,
-            $"Expected many Devanagari \\uXXXX escapes; found {devanagariEscapes.Count}");
-    }
-
-    [Fact]
-    public void AppLayout_LoadsI18nBeforeCore()
-    {
-        var razor = File.ReadAllText(Path.Combine(RepoRoot, "Pages", "Shared", "_AppLayout.cshtml"));
-        var i18nIdx = razor.IndexOf("afp-i18n.js", StringComparison.Ordinal);
-        var coreIdx = razor.IndexOf("afp-core.js", StringComparison.Ordinal);
-        Assert.True(i18nIdx > 0, "afp-i18n.js must be referenced by the layout");
-        Assert.True(coreIdx > 0, "afp-core.js must be referenced by the layout");
-        Assert.True(i18nIdx < coreIdx, "i18n must be loaded before core so I18n.t is available");
-    }
-
-    // ?? #4 Analytics dashboard ?????????????????????????????????????????????
     [Fact]
     public void AnalyticsRoute_ExistsAndMountedInServer()
     {
@@ -212,8 +178,8 @@ public sealed class EnhancementsSmokeTests
         var env = new StubEnv();
         var r   = new CdnUrlResolver(env, cfg);
         Assert.True(r.CdnEnabled);
-        var url = r.Resolve("js/afp-i18n.js");
-        Assert.StartsWith("https://cdn.example.test/js/afp-i18n.js", url);
+        var url = r.Resolve("js/afp-core.js");
+        Assert.StartsWith("https://cdn.example.test/js/afp-core.js", url);
     }
 
     [Fact]
