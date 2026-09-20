@@ -22,6 +22,16 @@ namespace AFP.Pages
     ///   Razorpay:KeyId          / KeySecret            (legacy fallback)
     /// The legacy pair keeps existing deployments working with zero config
     /// change until the AFP Razorpay merchant account is provisioned.
+    ///
+    /// Razorpay Route (multi-tenant split, added Phase 2):
+    ///   For municipal purposes, when
+    ///     • the Nigam has a linked account (razorpay_account_id), AND
+    ///     • Razorpay:Platform:LinkedAccountId is configured, AND
+    ///     • Payment:PlatformFeePct > 0
+    ///   the order is created with a transfers[] array that credits the
+    ///   Nigam's bank directly and routes a platform commission to AFP's
+    ///   linked account. When any of the above is missing we transparently
+    ///   fall back to a plain single-account order (previous behavior).
     /// </summary>
     [IgnoreAntiforgeryToken]
     public class PaymentModel : PageModel
@@ -79,6 +89,59 @@ namespace AFP.Pages
             int amountPaise  = amountRupees * 100;
             string currency  = _cfg["Payment:Currency"] ?? Currency;
 
+            // ── Razorpay Route split (municipal purposes only) ─────────────
+            // For a Nigam-bound payment we try to route funds directly:
+            //   • Nigam linked account   → amountPaise − platformCut
+            //   • Platform linked account → platformCut  (AFP commission)
+            // When any prerequisite is missing (no linked account for the
+            // Nigam, no platform linked account configured, or fee % is 0)
+            // we fall back to a single-account order — preserving existing
+            // behavior and keeping all current tests green.
+            List<TransferSpec>? transfers = null;
+            int platformCutPaise = 0;
+            string? nigamLinkedAccountId = null;
+            if (!IsPlatformPurpose(req.Purpose) && req.NigamId is > 0)
+            {
+                nigamLinkedAccountId = await ResolveNigamLinkedAccountAsync(req.NigamId.Value);
+                var platformLinkedAccountId = _cfg["Razorpay:Platform:LinkedAccountId"];
+                decimal feePct = _cfg.GetValue<decimal>("Payment:PlatformFeePct", 0m);
+                if (!string.IsNullOrWhiteSpace(nigamLinkedAccountId)
+                    && !string.IsNullOrWhiteSpace(platformLinkedAccountId)
+                    && feePct > 0m)
+                {
+                    platformCutPaise = (int)Math.Round(amountPaise * feePct / 100m);
+                    if (platformCutPaise < 0) platformCutPaise = 0;
+                    if (platformCutPaise > amountPaise) platformCutPaise = amountPaise;
+                    var nigamCutPaise = amountPaise - platformCutPaise;
+                    transfers = new List<TransferSpec>
+                    {
+                        new() {
+                            Account  = nigamLinkedAccountId!,
+                            Amount   = nigamCutPaise,
+                            Currency = currency,
+                            Notes    = new Dictionary<string, string> {
+                                ["purpose"] = req.Purpose ?? "",
+                                ["petName"] = req.PetName ?? "",
+                                ["nigamId"] = req.NigamId.ToString() ?? "",
+                            },
+                        },
+                    };
+                    if (platformCutPaise > 0)
+                    {
+                        transfers.Add(new TransferSpec
+                        {
+                            Account  = platformLinkedAccountId!,
+                            Amount   = platformCutPaise,
+                            Currency = currency,
+                            Notes    = new Dictionary<string, string> {
+                                ["purpose"] = "platform_commission",
+                                ["nigamId"] = req.NigamId.ToString() ?? "",
+                            },
+                        });
+                    }
+                }
+            }
+
             // ── TEST MODE: return synthetic order, no real Razorpay call ────
             if (testMode)
             {
@@ -93,7 +156,12 @@ namespace AFP.Pages
                     petName  = req.PetName ?? "",
                     purpose  = req.Purpose,
                     nigamId  = req.NigamId,
-                    testMode = true
+                    testMode = true,
+                    transfers = transfers?.Select(t => new {
+                        account = t.Account, amount = t.Amount, currency = t.Currency
+                    }).ToArray(),
+                    platformCut = platformCutPaise,
+                    nigamLinkedAccountId,
                 });
             }
 
@@ -108,13 +176,29 @@ namespace AFP.Pages
                     new System.Net.Http.Headers.AuthenticationHeaderValue(
                         "Basic", Convert.ToBase64String(authBytes));
 
-                var orderPayload = new
-                {
-                    amount   = amountPaise,
-                    currency,
-                    receipt  = $"afp_{req.Purpose}_{DateTime.UtcNow:yyyyMMddHHmmss}",
-                    notes    = new { petName = req.PetName ?? "", purpose = req.Purpose, nigamId = req.NigamId }
-                };
+                var orderPayload = transfers is { Count: > 0 }
+                    ? (object)new
+                    {
+                        amount    = amountPaise,
+                        currency,
+                        receipt   = $"afp_{req.Purpose}_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                        notes     = new { petName = req.PetName ?? "", purpose = req.Purpose, nigamId = req.NigamId },
+                        transfers = transfers.Select(t => new
+                        {
+                            account  = t.Account,
+                            amount   = t.Amount,
+                            currency = t.Currency,
+                            notes    = t.Notes,
+                            on_hold  = 0,
+                        }).ToArray(),
+                    }
+                    : new
+                    {
+                        amount  = amountPaise,
+                        currency,
+                        receipt = $"afp_{req.Purpose}_{DateTime.UtcNow:yyyyMMddHHmmss}",
+                        notes   = new { petName = req.PetName ?? "", purpose = req.Purpose, nigamId = req.NigamId },
+                    };
 
                 var response = await client.PostAsJsonAsync("https://api.razorpay.com/v1/orders", orderPayload);
                 if (!response.IsSuccessStatusCode)
@@ -134,7 +218,12 @@ namespace AFP.Pages
                     petName  = req.PetName ?? "",
                     purpose  = req.Purpose,
                     nigamId  = req.NigamId,
-                    testMode = false
+                    testMode = false,
+                    transfers = transfers?.Select(t => new {
+                        account = t.Account, amount = t.Amount, currency = t.Currency
+                    }).ToArray(),
+                    platformCut = platformCutPaise,
+                    nigamLinkedAccountId,
                 });
             }
             catch (Exception ex)
@@ -169,6 +258,33 @@ namespace AFP.Pages
                    ?? _cfg["Razorpay:KeySecret"]
                    ?? throw new InvalidOperationException(
                        $"Razorpay:{scope}:KeySecret (or Razorpay:KeySecret fallback) not configured.");
+        }
+
+        // Looks up the Razorpay linked-account id for a Nigam from the
+        // api-proxy. Returns null when the Nigam has not yet completed
+        // Route KYC (in which case CreateOrder falls back to a plain,
+        // single-account order). Made internal + virtual so unit tests
+        // can stub the network hop.
+        internal virtual async Task<string?> ResolveNigamLinkedAccountAsync(int nigamId)
+        {
+            try
+            {
+                var client = _http.CreateClient("api-proxy");
+                var resp   = await client.GetAsync($"/api/geo/nigams/{nigamId}");
+                if (!resp.IsSuccessStatusCode) return null;
+                var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (json.TryGetProperty("razorpay_account_id", out var el)
+                    && el.ValueKind == JsonValueKind.String)
+                {
+                    var id = el.GetString();
+                    return string.IsNullOrWhiteSpace(id) ? null : id;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Nigam linked-account lookup failed for nigamId={NigamId}", nigamId);
+            }
+            return null;
         }
 
         // Resolves a portal-level fee (doctor / shop) in rupees.
@@ -361,6 +477,15 @@ namespace AFP.Pages
         // Platform). Optional for backward compatibility — missing purpose
         // falls back to the legacy single-account credentials.
         public string? Purpose  { get; set; }
+    }
+
+    // Internal DTO for the Razorpay Route transfers[] entry.
+    internal sealed class TransferSpec
+    {
+        public string Account  { get; set; } = "";
+        public int    Amount   { get; set; }
+        public string Currency { get; set; } = "INR";
+        public Dictionary<string, string>? Notes { get; set; }
     }
 }
 

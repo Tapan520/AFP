@@ -92,6 +92,7 @@ const tabs = [
     ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
     ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
     ...(canEditFees    ? [{ key: "fees",      label: "&#x1F4B0; Fees"        }] : []),
+    ...(canManageUsers ? [{ key: "feedback",  label: "&#x2B50; Feedback"     }] : []),
     ...(isSA ? [{ key: "cities",    label: "Cities"       }] : []),
     ...(isSA ? [{ key: "listings",  label: "\ud83d\udccb Listings" }] : []),
     ...(isSA ? [{ key: "doctors",   label: "+ Doctors"    }] : []),
@@ -267,6 +268,8 @@ async function renderAdminTab(tab) {
             return;
         }
         await FeeMgmt.loadFeeMgmt(body);
+    } else if (tab === "feedback") {
+        await renderAdminFeedback(body);
     } else if (tab === "analytics") {
         if (user?.role !== "super_admin") { body.innerHTML = alertBoxHTML("warn", "Super admin access required."); return; }
         await renderAnalyticsDashboard(body);
@@ -1425,6 +1428,153 @@ function renderAddShopForm(container) {
     });
 }
 
+
+// ?? Admin Feedback / Ratings ??????????????????????????????????????????????
+// Browse ALL citizen ratings & comments for doctors and shops. Filter by
+// type (doctor/shop), star count, or free-text (reviewer name / comment
+// body / target name). Available to ward_admin and above.
+const AdminFeedbackState = { type: "", stars: "", q: "", rows: [], summary: null };
+
+async function renderAdminFeedback(body) {
+    renderLoading(body);
+    try {
+        await _loadAdminFeedback();
+        body.innerHTML = `
+            <div style="font-size:17px;font-weight:700;margin-bottom:4px">&#x2B50; Feedback &amp; Ratings</div>
+            <div style="font-size:12px;color:var(--tx2);margin-bottom:13px">
+                All citizen ratings for vets &amp; pet-shops. Only the latest rating per (owner, target) is kept.
+            </div>
+            <div id="admin-feedback-summary"></div>
+            <div class="card" style="margin-bottom:12px">
+                <div class="d-row" style="flex-wrap:wrap;gap:8px">
+                    <div class="field" style="margin-bottom:0;flex:1;min-width:120px">
+                        <label class="field-label">Type</label>
+                        <select id="fb-type" class="field-input" onchange="adminFeedbackApply()">
+                            <option value="">All</option>
+                            <option value="doctor">&#x1FA7A; Doctors</option>
+                            <option value="shop">&#x1F6D2; Shops</option>
+                        </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0;flex:1;min-width:120px">
+                        <label class="field-label">Stars</label>
+                        <select id="fb-stars" class="field-input" onchange="adminFeedbackApply()">
+                            <option value="">Any</option>
+                            <option value="5">5 &#x2B50;</option>
+                            <option value="4">4 &#x2B50;</option>
+                            <option value="3">3 &#x2B50;</option>
+                            <option value="2">2 &#x2B50;</option>
+                            <option value="1">1 &#x2B50;</option>
+                        </select>
+                    </div>
+                    <div class="field" style="margin-bottom:0;flex:2;min-width:160px">
+                        <label class="field-label">Search</label>
+                        <input id="fb-q" class="field-input" placeholder="Reviewer, target or comment&hellip;"
+                            oninput="adminFeedbackDebouncedApply()" />
+                    </div>
+                </div>
+            </div>
+            <div id="admin-feedback-list"></div>`;
+        _renderAdminFeedbackSummary();
+        _renderAdminFeedbackList();
+    } catch (ex) {
+        body.innerHTML = alertBoxHTML("err", "Failed to load feedback: " + ex.message);
+    }
+}
+
+async function _loadAdminFeedback() {
+    const p = new URLSearchParams();
+    if (AdminFeedbackState.type)  p.set("type",  AdminFeedbackState.type);
+    if (AdminFeedbackState.stars) p.set("stars", AdminFeedbackState.stars);
+    if (AdminFeedbackState.q)     p.set("q",     AdminFeedbackState.q);
+    const data = await AFP.GET(`/api/ratings/admin?${p}`);
+    AdminFeedbackState.rows    = data.rows    || [];
+    AdminFeedbackState.summary = data.summary || null;
+}
+
+function _renderAdminFeedbackSummary() {
+    const el = document.getElementById("admin-feedback-summary");
+    if (!el) return;
+    const s = AdminFeedbackState.summary || { total: 0, avg_stars: 0, doctor_count: 0, shop_count: 0 };
+    el.innerHTML = `
+        <div style="display:flex;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+            <div class="scard" style="flex:1;min-width:100px">
+                <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Total</div>
+                <div style="font-size:22px;font-weight:700">${s.total || 0}</div>
+            </div>
+            <div class="scard" style="flex:1;min-width:100px">
+                <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Avg</div>
+                <div style="font-size:22px;font-weight:700;color:var(--or)">&#x2B50; ${Number(s.avg_stars || 0).toFixed(1)}</div>
+            </div>
+            <div class="scard" style="flex:1;min-width:100px">
+                <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Doctors</div>
+                <div style="font-size:22px;font-weight:700">${s.doctor_count || 0}</div>
+            </div>
+            <div class="scard" style="flex:1;min-width:100px">
+                <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Shops</div>
+                <div style="font-size:22px;font-weight:700">${s.shop_count || 0}</div>
+            </div>
+        </div>`;
+}
+
+function _renderAdminFeedbackList() {
+    const listEl = document.getElementById("admin-feedback-list");
+    if (!listEl) return;
+    const rows = AdminFeedbackState.rows || [];
+    if (rows.length === 0) {
+        renderEmpty(listEl, "&#x2B50;", "No feedback matches these filters.");
+        return;
+    }
+    listEl.innerHTML = rows.map(r => {
+        const stars = "\u2605".repeat(r.stars) + "\u2606".repeat(5 - r.stars);
+        const icon  = r.target_type === "doctor" ? "\u{1FA7A}" : "\u{1F6D2}";
+        return `
+        <div class="card" style="margin-bottom:11px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
+                <div style="min-width:0;flex:1">
+                    <div style="font-weight:600;font-size:14px">
+                        ${icon} ${escHtml(r.target_name || "\u2014")}
+                        <span style="font-size:11px;color:var(--tx3);font-weight:400">
+                            &middot; ${escHtml(r.target_mobile || "")}
+                        </span>
+                    </div>
+                    <div style="font-size:11px;color:var(--tx3);margin-top:2px">
+                        by ${escHtml(r.reviewer_name || "\u2014")} &middot; ${escHtml(r.reviewer_mobile || "")}
+                        &middot; ${AFP.fmt(r.updated_at || r.created_at)}
+                    </div>
+                </div>
+                <div style="color:#F5B301;font-size:15px;letter-spacing:1px;flex-shrink:0" title="${r.stars} of 5">
+                    ${stars}
+                </div>
+            </div>
+            ${r.comment ? `
+            <div style="background:var(--sf2);border-radius:8px;padding:9px 11px;
+                        font-size:13px;color:var(--tx);white-space:pre-wrap;line-height:1.5">
+                ${escHtml(r.comment)}
+            </div>` : `
+            <div style="font-size:11px;color:var(--tx3);font-style:italic">No comment.</div>`}
+        </div>`;
+    }).join("");
+}
+
+let _adminFeedbackTimer = null;
+function adminFeedbackDebouncedApply() {
+    clearTimeout(_adminFeedbackTimer);
+    _adminFeedbackTimer = setTimeout(adminFeedbackApply, 300);
+}
+async function adminFeedbackApply() {
+    AdminFeedbackState.type  = document.getElementById("fb-type")?.value  || "";
+    AdminFeedbackState.stars = document.getElementById("fb-stars")?.value || "";
+    AdminFeedbackState.q     = document.getElementById("fb-q")?.value.trim() || "";
+    const listEl = document.getElementById("admin-feedback-list");
+    if (listEl) renderLoading(listEl);
+    try {
+        await _loadAdminFeedback();
+        _renderAdminFeedbackSummary();
+        _renderAdminFeedbackList();
+    } catch (ex) {
+        if (listEl) listEl.innerHTML = alertBoxHTML("err", "Failed: " + ex.message);
+    }
+}
 
 // ?? Analytics dashboard (Overview tab) ?????????????????????????????????????
 // Uses Chart.js loaded on-demand from a CDN. Draws a YoY revenue line chart

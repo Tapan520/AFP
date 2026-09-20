@@ -135,6 +135,7 @@ async function uploadFile(path, file, fieldName = "photo") {
                 emergencyVet:  loadEmergencyVet,
                 microchip:     loadMicrochip,
                 events:        loadEvents,
+                ratings:       typeof loadRatings === "function" ? loadRatings : null,
                 vetHome:       typeof loadVetHome    === "function" ? loadVetHome    : null,
                 shopHome:      typeof loadShopHome   === "function" ? loadShopHome   : null,
                 appStatus:     typeof loadAppStatus  === "function" ? loadAppStatus  : null,

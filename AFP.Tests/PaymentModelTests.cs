@@ -398,4 +398,127 @@ public class PaymentModelTests
     {
         public HttpClient CreateClient(string name) => new HttpClient();
     }
+
+    // ── Razorpay Route (multi-tenant split) tests ───────────────────────────
+    // Verifies transfers[] construction when a Nigam has a linked account,
+    // the platform linked account is configured, and PlatformFeePct > 0.
+    // Also verifies graceful fallback when any prerequisite is missing.
+
+    private sealed class RouteStubbedPaymentModel : PaymentModel
+    {
+        public Dictionary<int, string?> NigamLinkedAccounts { get; } = new();
+
+        public RouteStubbedPaymentModel(IConfiguration cfg)
+            : base(cfg, new StubHttpClientFactory(), NullLogger<PaymentModel>.Instance) { }
+
+        internal override Task<int> ResolveFeeAsync(string purpose, int? nigamId, string? species = null, string? breed = null)
+            => Task.FromResult(200); // flat ₹200 → 20000 paise for predictable math
+
+        internal override Task<string?> ResolveNigamLinkedAccountAsync(int nigamId)
+            => Task.FromResult(NigamLinkedAccounts.TryGetValue(nigamId, out var a) ? a : null);
+    }
+
+    private static IConfiguration RouteCfg(string? platformAcc, string? feePct)
+    {
+        var dict = new Dictionary<string, string?> { ["Payment:TestMode"] = "true" };
+        if (platformAcc is not null) dict["Razorpay:Platform:LinkedAccountId"] = platformAcc;
+        if (feePct     is not null) dict["Payment:PlatformFeePct"]             = feePct;
+        return new ConfigurationBuilder().AddInMemoryCollection(dict).Build();
+    }
+
+    [Fact]
+    public async Task CreateOrder_RouteEnabled_BuildsSplitTransfers()
+    {
+        var model = new RouteStubbedPaymentModel(RouteCfg("acc_platform", "10"));
+        model.NigamLinkedAccounts[42] = "acc_nigam_42";
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+        var payload = result.Value!;
+
+        Assert.Equal(20000, Get<int>(payload, "amount"));
+        Assert.Equal(2000,  Get<int>(payload, "platformCut"));
+        Assert.Equal("acc_nigam_42", Get<string?>(payload, "nigamLinkedAccountId"));
+
+        var transfers = Get<object[]?>(payload, "transfers");
+        Assert.NotNull(transfers);
+        Assert.Equal(2, transfers!.Length);
+        Assert.Equal("acc_nigam_42", Get<string>(transfers[0], "account"));
+        Assert.Equal(18000,          Get<int>(transfers[0], "amount"));
+        Assert.Equal("acc_platform", Get<string>(transfers[1], "account"));
+        Assert.Equal(2000,           Get<int>(transfers[1], "amount"));
+    }
+
+    [Fact]
+    public async Task CreateOrder_RouteEnabled_ZeroFeePct_NoSplit()
+    {
+        var model = new RouteStubbedPaymentModel(RouteCfg("acc_platform", "0"));
+        model.NigamLinkedAccounts[42] = "acc_nigam_42";
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+
+        Assert.Null(Get<object[]?>(result.Value!, "transfers"));
+        Assert.Equal(0, Get<int>(result.Value!, "platformCut"));
+    }
+
+    [Fact]
+    public async Task CreateOrder_RouteEnabled_NoNigamLinkedAccount_FallsBackToSingleAccount()
+    {
+        var model = new RouteStubbedPaymentModel(RouteCfg("acc_platform", "10"));
+        // NigamLinkedAccounts is empty → lookup returns null
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+
+        Assert.Null(Get<object[]?>(result.Value!, "transfers"));
+        Assert.Null(Get<string?>(result.Value!, "nigamLinkedAccountId"));
+    }
+
+    [Fact]
+    public async Task CreateOrder_RouteEnabled_MissingPlatformAccount_FallsBackToSingleAccount()
+    {
+        var model = new RouteStubbedPaymentModel(RouteCfg(platformAcc: null, feePct: "10"));
+        model.NigamLinkedAccounts[42] = "acc_nigam_42";
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+
+        Assert.Null(Get<object[]?>(result.Value!, "transfers"));
+    }
+
+    [Fact]
+    public async Task CreateOrder_PlatformPurpose_NeverSplits()
+    {
+        // shop_registration routes to the AFP account directly — no Route split.
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Payment:TestMode"]                     = "true",
+            ["Razorpay:Platform:LinkedAccountId"]    = "acc_platform",
+            ["Payment:PlatformFeePct"]               = "10",
+        }).Build();
+        var model = new RouteStubbedPaymentModel(cfg);
+        model.NigamLinkedAccounts[42] = "acc_nigam_42";
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "shop_registration", NigamId = 42 });
+
+        Assert.Null(Get<object[]?>(result.Value!, "transfers"));
+    }
+
+    [Fact]
+    public async Task CreateOrder_RouteEnabled_ClampsFeePctAbove100()
+    {
+        // Guard: fee % >100 caps platformCut at total amount, Nigam gets 0.
+        var model = new RouteStubbedPaymentModel(RouteCfg("acc_platform", "150"));
+        model.NigamLinkedAccounts[42] = "acc_nigam_42";
+
+        var result = (JsonResult)await model.OnPostCreateOrderAsync(
+            new CreateOrderRequest { Purpose = "registration", NigamId = 42 });
+        var payload = result.Value!;
+
+        Assert.Equal(20000, Get<int>(payload, "platformCut"));
+        var transfers = Get<object[]>(payload, "transfers")!;
+        Assert.Equal(0, Get<int>(transfers[0], "amount")); // Nigam gets 0
+    }
 }

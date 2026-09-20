@@ -107,6 +107,10 @@ async function loadDashboard() {
                 <div class="fcard-icon" style="background:#E8F4FF">&#x1F4AC;</div>
                 <div class="fcard-lbl">Community forum</div>
             </div>
+            <div class="fcard" onclick="AFP.go('ratings')">
+                <div class="fcard-icon" style="background:#FEF3C7">&#x2B50;</div>
+                <div class="fcard-lbl">Ratings &amp; feedback</div>
+            </div>
             <div class="fcard" onclick="AFP.go('vaxReminders')">
                 <div class="fcard-icon" style="background:#FEF3C7">&#x1F489;</div>
                 <div class="fcard-lbl">Vaccine reminders</div>

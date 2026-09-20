@@ -50,14 +50,28 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 
-app.UseRouting();
-app.UseAuthorization();
-
 // ?? Reverse-proxy /api/* and /uploads/* to the Node backend ?????????????????
 // The frontend JS uses relative URLs (see wwwroot/js/afp-core.js) and relies on
 // the .NET server to forward those requests to http://localhost:3000 in dev.
-app.Map("/api/{**catchall}", ProxyToBackend);
-app.Map("/uploads/{**catchall}", ProxyToBackend);
+// IMPORTANT: We use raw middleware (app.Use) rather than app.Map here so the
+// proxy runs BEFORE endpoint routing. Otherwise the Razor Pages fallback can
+// swallow POST /api/* and return the SPA index page (text/html), which was
+// silently dropping citizen rating submissions.
+app.Use(async (ctx, next) =>
+{
+    var path = ctx.Request.Path.Value ?? "";
+    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+    {
+        var httpFactory = ctx.RequestServices.GetRequiredService<IHttpClientFactory>();
+        await ProxyToBackend(ctx, httpFactory);
+        return;
+    }
+    await next();
+});
+
+app.UseRouting();
+app.UseAuthorization();
 
 // ── SEO: robots.txt + sitemap.xml ────────────────────────────────────────────
 app.MapGet("/robots.txt", (HttpContext ctx) =>
@@ -138,15 +152,18 @@ static async Task ProxyToBackend(HttpContext ctx, IHttpClientFactory httpFactory
     if (!HttpMethods.IsGet(ctx.Request.Method) &&
         !HttpMethods.IsHead(ctx.Request.Method))
     {
+        ctx.Request.EnableBuffering();
         using var ms = new MemoryStream();
         await ctx.Request.Body.CopyToAsync(ms, ctx.RequestAborted);
         var bytes = ms.ToArray();
-        upstream.Content = new ByteArrayContent(bytes);
 
-        // Set Content-Type from the incoming request (fallback to JSON when unknown).
+        var content = new ByteArrayContent(bytes);
+        // ByteArrayContent auto-computes Content-Length, but we still need to
+        // copy the caller's Content-Type across (defaults to JSON).
         var contentType = ctx.Request.ContentType ?? "application/json";
-        upstream.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
-        upstream.Content.Headers.ContentLength = bytes.LongLength;
+        content.Headers.Remove("Content-Type");
+        content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        upstream.Content = content;
     }
 
     // Forward only auth-related / safe headers. Do NOT forward hop-by-hop headers

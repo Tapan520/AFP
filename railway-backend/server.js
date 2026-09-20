@@ -28,6 +28,7 @@ const billingRouter       = require("./routes/billing");
 const adminSearchRouter   = require("./routes/adminSearch");
 const platformFeesRouter  = require("./routes/platformFees");
 const businessRouter      = require("./routes/business");
+const ratingsRouter       = require("./routes/ratings");
 const scheduler           = require("./jobs/scheduler");
 const { sendEmail }       = require("./utils/email");
 
@@ -290,6 +291,11 @@ app.use("/api/platform-fees", platformFeesRouter);
 // with super_admin approval queue. Payments flow to the AFP Razorpay account.
 app.use("/api/business", businessRouter);
 
+// Pet-owner feedback / ratings for Doctors & Shops. Only the LATEST rating
+// per (user, target) is retained — enforced by the UNIQUE index on
+// (user_id, target_type, target_id) and an ON CONFLICT upsert in POST.
+app.use("/api/ratings", ratingsRouter);
+
 // ?? 404 catch-all ?????????????????????????????????????????????????????????????
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
@@ -442,6 +448,23 @@ async function runMigrations() {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_nfr_nigam_sp_size
         ON nigam_fee_rules(nigam_id, species, size_category)`,
+    // ── Feedback / ratings for doctors & shops (pet owners only) ─────────
+    // Only the LATEST rating per (user, target_type, target_id) is kept;
+    // the UNIQUE index enforces that and POST /api/ratings upserts.
+    `CREATE TABLE IF NOT EXISTS ratings (
+        id           SERIAL       PRIMARY KEY,
+        user_id      INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_type  VARCHAR(10)  NOT NULL,
+        target_id    INTEGER      NOT NULL,
+        stars        SMALLINT     NOT NULL,
+        comment      TEXT         NULL,
+        created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_user_target
+        ON ratings(user_id, target_type, target_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_ratings_target
+        ON ratings(target_type, target_id)`,
     // report_comments table (from migrations/add_report_comments.sql)
     `CREATE TABLE IF NOT EXISTS report_comments (
         id         SERIAL      PRIMARY KEY,

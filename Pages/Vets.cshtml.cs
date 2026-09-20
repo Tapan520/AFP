@@ -62,5 +62,7 @@ public class VetsModel : PageModel
         [JsonPropertyName("timings")]        public string? Timings        { get; set; }
         [JsonPropertyName("is_24hr")]        public bool   Is24hr         { get; set; }
         [JsonPropertyName("city_name")]      public string? CityName       { get; set; }
+        [JsonPropertyName("average_rating")] public double? AverageRating { get; set; }
+        [JsonPropertyName("rating_count")]   public int?    RatingCount   { get; set; }
     }
 }
