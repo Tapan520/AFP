@@ -334,6 +334,13 @@ async function renderProfileTab(tab) {
 }
 
 // ?? SCREEN: SEARCH DOCTOR ?????????????????????????????????????????????????????
+// State: default sort = "name" (A–Z alphabetical) to give a predictable list;
+// citizens flip to "rating" via the Top-rated chip when they want the best first.
+// Pagination: LIST_PAGE_SIZE rows per page, tracked by _docPage (0-based).
+const LIST_PAGE_SIZE = 10;
+let _docSort = "name";
+let _docPage = 0;
+
 async function loadSearchDoctor() {
     const user = AFP.getUser();
     if (!["citizen","super_admin"].includes(user?.role)) {
@@ -347,31 +354,93 @@ async function loadSearchDoctor() {
             </div>`;
         return;
     }
+    _docPage = 0;
+    _ensureSortChips("searchdoc-results", "doctor");
     await doSearchDoctor();
+}
+
+// Star display: filled ★ * n, empty ☆ * (5 - n). Half stars rounded to nearest.
+function _starRow(avg, count) {
+    if (!count || count === 0) {
+        return `<span style="font-size:11px;color:var(--tx3);font-style:italic">New \u2014 no reviews yet</span>`;
+    }
+    const n = Math.round(Number(avg));
+    const filled = "\u2605".repeat(Math.max(0, Math.min(5, n)));
+    const empty  = "\u2606".repeat(5 - Math.max(0, Math.min(5, n)));
+    const avgTxt = Number(avg).toFixed(1);
+    return `
+        <span style="color:#F5B301;font-size:13px;letter-spacing:1px" title="${avgTxt} of 5">
+            ${filled}<span style="color:#D4D4D4">${empty}</span>
+        </span>
+        <span style="font-size:11px;color:var(--tx2);margin-left:5px">${avgTxt} (${count})</span>`;
+}
+
+// Inject the sort-chip row above a results container if it isn't already there.
+// Default active chip is A–Z (matches the ordered directory behaviour citizens
+// expect); the Top-rated chip is one tap away.
+function _ensureSortChips(resultsId, kind) {
+    const results = document.getElementById(resultsId);
+    if (!results) return;
+    const parent = results.parentElement;
+    if (!parent || parent.querySelector(`.sortchips-${kind}`)) return;
+    const wrap = document.createElement("div");
+    wrap.className = `chips sortchips-${kind}`;
+    wrap.style.margin = "0 0 10px";
+    wrap.innerHTML = `
+        <button class="chip"        data-sort="rating" onclick="_setListSort('${kind}','rating',this)">\u2B50 Top rated</button>
+        <button class="chip active" data-sort="name"   onclick="_setListSort('${kind}','name',this)">A\u2013Z</button>`;
+    parent.insertBefore(wrap, results);
+}
+
+function _setListSort(kind, sort, chipEl) {
+    const chips = chipEl?.parentElement?.querySelectorAll(".chip");
+    chips?.forEach(c => c.classList.toggle("active", c === chipEl));
+    if (kind === "doctor") { _docSort = sort; _docPage = 0; doSearchDoctor(); }
+    else                   { _shopSort = sort; _shopPage = 0; doSearchShop(); }
 }
 
 async function doSearchDoctor() {
     const q       = document.getElementById("searchdoc-q")?.value || "";
+    // NOTE: the "All" chip has data-city="" — treat that as "no city filter".
+    // We do NOT fall back to the logged-in user's city because citizens on
+    // "All" explicitly want vets from every city.
     const cFlt    = document.querySelector(".searchdoc-chip.active")?.dataset.city || "";
-    const user    = AFP.getUser();
     const results = document.getElementById("searchdoc-results");
     if (!results) return;
     renderLoading(results);
     try {
-        const data = await AFP.GET(`/api/doctors?cityId=${cFlt || user?.city_id || ""}&q=${encodeURIComponent(q)}`);
-        if (data.length === 0) { renderEmpty(results, "&#x1FA7A;", "No vets found"); return; }
-        results.innerHTML = data.map(d => `
+        const p = new URLSearchParams();
+        if (cFlt) p.set("cityId", cFlt);
+        if (q)    p.set("q", q);
+        p.set("sortBy", _docSort);
+        p.set("limit",  LIST_PAGE_SIZE);
+        p.set("offset", _docPage * LIST_PAGE_SIZE);
+        const data = await AFP.GET(`/api/doctors?${p}`);
+        if (data.length === 0 && _docPage === 0) {
+            renderEmpty(results, "&#x1FA7A;", "No vets found");
+            return;
+        }
+        // If a stale page has no rows (user changed filters), reset to page 0.
+        if (data.length === 0 && _docPage > 0) {
+            _docPage = 0;
+            return doSearchDoctor();
+        }
+        const cards = data.map(d => `
             <div class="dir-card" onclick="openDoctorModal(${d.id})">
                 <div class="dir-card-avatar" style="background:var(--bl-p)">&#x1F468;&#x200D;&#x2695;&#xFE0F;</div>
                 <div style="flex:1">
                     <div style="font-weight:600;font-size:14px;margin-bottom:2px">${escHtml(d.name)}</div>
                     <div style="font-size:12px;color:var(--tx2);margin-bottom:2px">${escHtml(d.specialization || "")}</div>
                     <div style="font-size:11px;color:var(--tx3)">&#x1F4CD; ${escHtml(d.ward_number || "")}, ${escHtml(d.city_name || "")}</div>
+                    <div style="margin-top:5px;cursor:pointer" onclick="event.stopPropagation();openReviewsModal('doctor',${d.id},'${escHtml((d.name || '').replace(/'/g,"\\'"))}')">
+                        ${_starRow(d.average_rating, d.rating_count)}
+                    </div>
                     <div style="margin-top:5px">
                         ${badgeHTML(d.is_24hr ? "24hr Clinic" : "Available", d.is_24hr ? "in" : "ok")}
                     </div>
                 </div>
             </div>`).join("");
+        results.innerHTML = cards + _paginationHTML("doctor", _docPage, data.length);
         results._doctors = data;
     } catch { renderEmpty(results, "&#x1FA7A;", "No vets found"); }
 }
@@ -379,6 +448,7 @@ async function doSearchDoctor() {
 function setDoctorFilter(el, city) {
     document.querySelectorAll(".searchdoc-chip").forEach(c => c.classList.remove("active"));
     el.classList.add("active");
+    _docPage = 0;
     doSearchDoctor();
 }
 
@@ -407,37 +477,91 @@ function closeDoctorModal() {
 }
 
 // ?? SCREEN: SEARCH SHOP ???????????????????????????????????????????????????????
+// Same defaults as the vet screen: A–Z sort, one-tap flip to Top rated,
+// LIST_PAGE_SIZE rows per page.
+let _shopSort = "name";
+let _shopPage = 0;
+
 async function loadSearchShop() {
+    _shopPage = 0;
+    _ensureSortChips("searchshop-results", "shop");
     await doSearchShop();
 }
 
 async function doSearchShop() {
     const q       = document.getElementById("searchshop-q")?.value || "";
+    // "All" chip => no city filter; do not silently narrow to home city.
     const cFlt    = document.querySelector(".searchshop-chip.active")?.dataset.city || "";
-    const user    = AFP.getUser();
     const results = document.getElementById("searchshop-results");
     if (!results) return;
     renderLoading(results);
     try {
-        const data = await AFP.GET(`/api/shops?cityId=${cFlt || user?.city_id || ""}&q=${encodeURIComponent(q)}`);
-        if (data.length === 0) { renderEmpty(results, "&#x1F6D2;", "No shops found"); return; }
-        results.innerHTML = data.map(s => `
+        const p = new URLSearchParams();
+        if (cFlt) p.set("cityId", cFlt);
+        if (q)    p.set("q", q);
+        p.set("sortBy", _shopSort);
+        p.set("limit",  LIST_PAGE_SIZE);
+        p.set("offset", _shopPage * LIST_PAGE_SIZE);
+        const data = await AFP.GET(`/api/shops?${p}`);
+        if (data.length === 0 && _shopPage === 0) {
+            renderEmpty(results, "&#x1F6D2;", "No shops found");
+            return;
+        }
+        if (data.length === 0 && _shopPage > 0) {
+            _shopPage = 0;
+            return doSearchShop();
+        }
+        const cards = data.map(s => `
             <div class="dir-card" onclick="openShopModal(${s.id})">
                 <div class="dir-card-avatar" style="background:#F3E8FF">&#x1F6D2;</div>
                 <div style="flex:1">
                     <div style="font-weight:600;font-size:14px;margin-bottom:2px">${escHtml(s.name)}</div>
                     <div style="font-size:12px;color:var(--tx2);margin-bottom:2px">${escHtml(s.speciality || "")}</div>
                     <div style="font-size:11px;color:var(--tx3)">&#x1F4CD; ${escHtml(s.ward_number || "")}, ${escHtml(s.city_name || "")}</div>
+                    <div style="margin-top:5px;cursor:pointer" onclick="event.stopPropagation();openReviewsModal('shop',${s.id},'${escHtml((s.name || '').replace(/'/g,"\\'"))}')">
+                        ${_starRow(s.average_rating, s.rating_count)}
+                    </div>
                     <div style="margin-top:5px">${badgeHTML("Open", "ok")}</div>
                 </div>
             </div>`).join("");
+        results.innerHTML = cards + _paginationHTML("shop", _shopPage, data.length);
         results._shops = data;
     } catch { renderEmpty(results, "&#x1F6D2;", "No shops found"); }
+}
+
+// ?? Pagination footer ???????????????????????????????????????????????????????
+// Rendered as the last child of the results container. Prev is disabled on
+// page 0; Next is disabled when the last fetch returned fewer than
+// LIST_PAGE_SIZE rows (i.e. we've reached the end).
+function _paginationHTML(kind, page, gotCount) {
+    const hasPrev = page > 0;
+    const hasNext = gotCount >= LIST_PAGE_SIZE;
+    if (!hasPrev && !hasNext) return "";  // single-page list — hide entirely
+    const disabledStyle = "opacity:.4;cursor:not-allowed";
+    return `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;padding:8px 4px">
+            <button class="btn btn-ghost btn-small btn-w-auto"
+                    style="padding:8px 14px;${hasPrev ? "" : disabledStyle}"
+                    ${hasPrev ? "" : "disabled"}
+                    onclick="_gotoPage('${kind}',${page - 1})">&larr; Prev</button>
+            <div style="font-size:12px;color:var(--tx3)">Page ${page + 1}</div>
+            <button class="btn btn-ghost btn-small btn-w-auto"
+                    style="padding:8px 14px;${hasNext ? "" : disabledStyle}"
+                    ${hasNext ? "" : "disabled"}
+                    onclick="_gotoPage('${kind}',${page + 1})">Next &rarr;</button>
+        </div>`;
+}
+
+function _gotoPage(kind, page) {
+    if (kind === "doctor") { _docPage  = Math.max(0, page); doSearchDoctor(); }
+    else                   { _shopPage = Math.max(0, page); doSearchShop();  }
+    window.scrollTo(0, 0);
 }
 
 function setShopFilter(el, city) {
     document.querySelectorAll(".searchshop-chip").forEach(c => c.classList.remove("active"));
     el.classList.add("active");
+    _shopPage = 0;
     doSearchShop();
 }
 
@@ -462,6 +586,90 @@ function openShopModal(id) {
 
 function closeShopModal() {
     document.getElementById("shop-modal").style.display = "none";
+}
+
+// ?? REVIEWS MODAL (tap the stars on a vet/shop card) ??????????????????????????
+// Lazily creates a shared modal shell the first time it's opened, then loads
+// `/api/ratings/for/:type/:id` and renders the summary + review list. Public
+// endpoint — works for logged-in citizens AND unauthenticated visitors on the
+// SEO-indexed /vets and /shops pages.
+function _ensureReviewsModal() {
+    let m = document.getElementById("reviews-modal");
+    if (m) return m;
+    const shell = document.createElement("div");
+    shell.innerHTML = `
+        <div id="reviews-modal" class="modal-bg" style="display:none">
+            <div class="modal-sheet">
+                <div class="modal-handle"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px">
+                    <div id="reviews-modal-title" style="font-size:16px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#x2B50; Reviews</div>
+                    <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;line-height:1"
+                        onclick="closeReviewsModal()">&times;</button>
+                </div>
+                <div id="reviews-modal-summary" style="margin-bottom:12px"></div>
+                <div id="reviews-modal-body" class="scroll" style="max-height:60vh;overflow-y:auto;padding-right:4px"></div>
+                <button class="btn btn-ghost mt-8" onclick="closeReviewsModal()">Close</button>
+            </div>
+        </div>`;
+    document.body.appendChild(shell.firstElementChild);
+    m = document.getElementById("reviews-modal");
+    // Backdrop-click to close
+    m.addEventListener("click", e => { if (e.target === m) closeReviewsModal(); });
+    return m;
+}
+
+async function openReviewsModal(type, id, targetName) {
+    const m = _ensureReviewsModal();
+    document.getElementById("reviews-modal-title").textContent =
+        `\u2B50 ${targetName || "Reviews"}`;
+    const summary = document.getElementById("reviews-modal-summary");
+    const body    = document.getElementById("reviews-modal-body");
+    summary.innerHTML = "";
+    renderLoading(body);
+    m.style.display = "flex";
+    try {
+        // The public reviews endpoint doesn't need auth, but we hit it via
+        // fetch() directly so it works from both citizen and public contexts.
+        const res  = await fetch(`/api/ratings/for/${encodeURIComponent(type)}/${id}?limit=50`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to load reviews.");
+        const s = data.summary || { rating_count: 0, average_rating: 0 };
+        summary.innerHTML = `
+            <div class="scard" style="text-align:center">
+                <div style="font-size:24px;font-weight:700;color:var(--or)">
+                    ${Number(s.average_rating || 0).toFixed(1)}&nbsp;<span style="font-size:18px">\u2B50</span>
+                </div>
+                <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">
+                    ${s.rating_count || 0} review${s.rating_count === 1 ? "" : "s"}
+                </div>
+            </div>`;
+        const rows = data.rows || [];
+        if (rows.length === 0) {
+            renderEmpty(body, "\u2B50", "Be the first to leave a review!");
+            return;
+        }
+        body.innerHTML = rows.map(r => {
+            const stars = "\u2605".repeat(r.stars) + "\u2606".repeat(5 - r.stars);
+            const when  = new Date(r.updated_at || r.created_at).toLocaleDateString("en-IN",
+                { day: "2-digit", month: "short", year: "numeric" });
+            return `
+            <div class="card" style="margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px">
+                    <div style="font-size:13px;font-weight:600">${escHtml(r.reviewer_name)}</div>
+                    <span style="color:#F5B301;font-size:13px;letter-spacing:1px" title="${r.stars} of 5">${stars}</span>
+                </div>
+                <div style="font-size:11px;color:var(--tx3);margin-bottom:${r.comment ? 6 : 0}px">${escHtml(when)}</div>
+                ${r.comment ? `<div style="font-size:13px;line-height:1.5;color:var(--tx);white-space:pre-wrap">${escHtml(r.comment)}</div>` : ""}
+            </div>`;
+        }).join("");
+    } catch (ex) {
+        body.innerHTML = alertBoxHTML("err", "Failed to load reviews: " + ex.message);
+    }
+}
+
+function closeReviewsModal() {
+    const m = document.getElementById("reviews-modal");
+    if (m) m.style.display = "none";
 }
 
 // ?? PAGE INIT ?????????????????????????????????????????????????????????????????

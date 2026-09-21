@@ -18,17 +18,29 @@ const SHOP_SELECT = `
     c.name AS city_name,
     n.name AS nigam_name,
     z.name AS zone_name,
-    w.ward_number
+    w.ward_number,
+    COALESCE(rt.avg_stars, 0)   AS average_rating,
+    COALESCE(rt.rating_count, 0) AS rating_count
   FROM shops s
   LEFT JOIN cities c ON c.id = s.city_id
   LEFT JOIN nigams n ON n.id = s.nigam_id
   LEFT JOIN zones  z ON z.id = s.zone_id
   LEFT JOIN wards  w ON w.id = s.ward_id
+  LEFT JOIN (
+    SELECT target_id,
+           AVG(stars)  AS avg_stars,
+           COUNT(*)    AS rating_count
+      FROM ratings
+     WHERE target_type = 'shop'
+     GROUP BY target_id
+  ) rt ON rt.target_id = s.id
 `;
 
 // ?? GET /api/shops  (public) or /api/admin/shops  (admin sees inactive too)
+// Same rating aggregate + ?sortBy=rating|name convention as /api/doctors.
 router.get("/", async (req, res) => {
   const { cityId, q } = req.query;
+  const sortBy = (req.query.sortBy || "rating").toLowerCase();
   const params = [];
   const isAdmin = (req.baseUrl || "").includes("/admin");
   const where  = isAdmin ? [] : [
@@ -46,10 +58,18 @@ router.get("/", async (req, res) => {
     );
   }
 
+  const orderSQL = sortBy === "name"
+    ? "ORDER BY s.name ASC"
+    : "ORDER BY (COALESCE(rt.rating_count,0) = 0) ASC, COALESCE(rt.avg_stars,0) DESC, s.name ASC";
+
+  // Pagination (same bounds as /api/doctors).
+  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit, 10)  || 100));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
   try {
     const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const { rows } = await pool.query(
-      `${SHOP_SELECT} ${whereSQL} ORDER BY s.name LIMIT 100`,
+      `${SHOP_SELECT} ${whereSQL} ${orderSQL} LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     res.json(rows);

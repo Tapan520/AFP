@@ -29,7 +29,8 @@
     <meta name="twitter:description" content="@descr" />
 
     @* JSON-LD: ItemList of LocalBusiness (VeterinaryCare) so Google can render
-       rich cards for local search. *@
+       rich cards for local search. When a doctor has ratings we also include
+       aggregateRating so star badges appear in SERPs. *@
     @if (Model.Doctors.Any())
     {
         <script type="application/ld+json">
@@ -37,7 +38,12 @@
           "@@context": "https://schema.org",
           "@@type": "ItemList",
           "itemListElement": [
-            @Html.Raw(string.Join(",\n            ", Model.Doctors.Select((d, i) => $@"{{
+            @Html.Raw(string.Join(",\n            ", Model.Doctors.Select((d, i) => {
+                var hasRating = (d.RatingCount ?? 0) > 0;
+                var aggregateRating = hasRating
+                    ? $@", ""aggregateRating"": {{ ""@@type"": ""AggregateRating"", ""ratingValue"": {(d.AverageRating ?? 0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}, ""reviewCount"": {d.RatingCount} }}"
+                    : "";
+                return $@"{{
               ""@@type"": ""ListItem"",
               ""position"": {i + 1},
               ""item"": {{
@@ -46,9 +52,10 @@
                 ""description"": {System.Text.Json.JsonSerializer.Serialize(d.Specialization ?? "")},
                 ""telephone"": {System.Text.Json.JsonSerializer.Serialize(d.Mobile ?? "")},
                 ""address"": {System.Text.Json.JsonSerializer.Serialize(d.Address ?? "")},
-                ""areaServed"": {System.Text.Json.JsonSerializer.Serialize(d.CityName ?? Model.CityName)}
+                ""areaServed"": {System.Text.Json.JsonSerializer.Serialize(d.CityName ?? Model.CityName)}{aggregateRating}
               }}
-            }}")))
+            }}";
+            })))
           ]
         }
         </script>
@@ -66,6 +73,18 @@
         .row strong { color:#1A1814; }
         .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#DBEAFE; color:#1E40AF; margin-left:6px; }
         .b24 { background:#FEE2E2; color:#991B1B; }
+        .stars { color:#F5B301; font-size:14px; letter-spacing:1px; }
+        .stars .empty { color:#D4D4D4; }
+        .rating-row { margin-top:8px; font-size:13px; color:#3A3630; }
+        .rating-row .avg { color:#5A564F; margin-left:6px; font-size:12px; }
+        .no-rating { color:#9A958C; font-size:12px; font-style:italic; margin-top:8px; }
+        details.reviews { margin-top:10px; }
+        details.reviews summary { cursor:pointer; font-size:12px; color:#E8670A; font-weight:600; }
+        .review { border-top:1px solid #f0ebe0; padding:8px 0 4px; font-size:12px; }
+        .review-head { display:flex; justify-content:space-between; gap:8px; margin-bottom:2px; }
+        .review-name { font-weight:600; color:#1A1814; }
+        .review-when { color:#9A958C; font-size:11px; }
+        .review-body { color:#3A3630; line-height:18px; }
         a.cta { display:inline-block; margin-top:6px; padding:8px 14px; background:#E8670A; color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px; }
         .empty { text-align:center; color:#5A564F; padding:32px 12px; }
         .brand { text-align:center; color:#9A958C; font-size:11px; margin-top:24px; }
@@ -77,7 +96,7 @@
         <div class="sub">
             @if (Model.Doctors.Any())
             {
-                @($"{Model.Doctors.Count} verified veterinarians registered with the All For Pets Municipal Portal.")
+                @($"{Model.Doctors.Count} verified veterinarians registered with the All For Pets Municipal Portal — sorted by highest rated first.")
             }
             else
             {
@@ -96,12 +115,29 @@
         {
             foreach (var d in Model.Doctors)
             {
+                var ratingCount = d.RatingCount ?? 0;
+                var avg         = d.AverageRating ?? 0.0;
+                var filled      = (int)Math.Round(avg);
+                filled          = Math.Max(0, Math.Min(5, filled));
                 <div class="card">
                     <div class="name">
                         @(d.ClinicName ?? d.Name)
                         @if (d.Is24hr) { <span class="badge b24">24/7</span> }
                     </div>
                     <div class="qual">Dr. @d.Name @(!string.IsNullOrWhiteSpace(d.Qualification) ? "· " + d.Qualification : "")</div>
+                    @if (ratingCount > 0)
+                    {
+                        <div class="rating-row">
+                            <span class="stars">
+                                @Html.Raw(new string('★', filled))<span class="empty">@Html.Raw(new string('☆', 5 - filled))</span>
+                            </span>
+                            <span class="avg">@avg.ToString("0.0") (@ratingCount review@(ratingCount == 1 ? "" : "s"))</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="no-rating">New — no reviews yet</div>
+                    }
                     @if (!string.IsNullOrWhiteSpace(d.Specialization))
                     { <div class="row"><strong>Specialization:</strong> @d.Specialization</div> }
                     @if (!string.IsNullOrWhiteSpace(d.Address))
@@ -110,9 +146,51 @@
                     { <div class="row"><strong>🕒</strong> @d.Timings</div> }
                     @if (!string.IsNullOrWhiteSpace(d.Mobile))
                     { <div class="row"><strong>📞</strong> <a href="tel:@d.Mobile">@d.Mobile</a></div> }
+
+                    @if (Model.ReviewsByDoctor.TryGetValue(d.Id, out var reviews) && reviews.Count > 0)
+                    {
+                        <details class="reviews">
+                            <summary>⭐ Read @ratingCount review@(ratingCount == 1 ? "" : "s")</summary>
+                            @foreach (var r in reviews)
+                            {
+                                var rf = Math.Max(0, Math.Min(5, r.Stars));
+                                <div class="review">
+                                    <div class="review-head">
+                                        <span class="review-name">@r.ReviewerName</span>
+                                        <span class="stars" style="font-size:12px">
+                                            @Html.Raw(new string('★', rf))<span class="empty">@Html.Raw(new string('☆', 5 - rf))</span>
+                                        </span>
+                                    </div>
+                                    @if (r.UpdatedAt.HasValue)
+                                    {
+                                        <div class="review-when">@r.UpdatedAt.Value.ToString("dd MMM yyyy")</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(r.Comment))
+                                    {
+                                        <div class="review-body">@r.Comment</div>
+                                    }
+                                </div>
+                            }
+                        </details>
+                    }
                 </div>
             }
             <a class="cta" href="/">Register your pet on All For Pets →</a>
+
+            var basePath = string.IsNullOrEmpty(Model.CitySlug) ? "/vets" : $"/vets/{Model.CitySlug}";
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:8px">
+                @if (Model.CurrentPage > 1)
+                {
+                    <a class="cta" href="@($"{basePath}?page={Model.CurrentPage - 1}")" style="background:#5A564F">← Prev</a>
+                }
+                else { <span></span> }
+                <span style="font-size:12px;color:#9A958C">Page @Model.CurrentPage</span>
+                @if (Model.HasNextPage)
+                {
+                    <a class="cta" href="@($"{basePath}?page={Model.CurrentPage + 1}")">Next →</a>
+                }
+                else { <span></span> }
+            </div>
         }
 
         <div class="brand">🐾 All For Pets — Municipal Pet Registry</div>

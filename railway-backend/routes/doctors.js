@@ -19,17 +19,32 @@ const DOC_SELECT = `
     c.name AS city_name,
     n.name AS nigam_name,
     z.name AS zone_name,
-    w.ward_number
+    w.ward_number,
+    COALESCE(rt.avg_stars, 0)   AS average_rating,
+    COALESCE(rt.rating_count, 0) AS rating_count
   FROM doctors d
   LEFT JOIN cities c ON c.id = d.city_id
   LEFT JOIN nigams n ON n.id = d.nigam_id
   LEFT JOIN zones  z ON z.id = d.zone_id
   LEFT JOIN wards  w ON w.id = d.ward_id
+  LEFT JOIN (
+    SELECT target_id,
+           AVG(stars)  AS avg_stars,
+           COUNT(*)    AS rating_count
+      FROM ratings
+     WHERE target_type = 'doctor'
+     GROUP BY target_id
+  ) rt ON rt.target_id = d.id
 `;
 
 // ?? GET /api/doctors  (public) or /api/admin/doctors  (admin sees inactive too)
+// Optional query params:
+//   ?cityId=<id>        filter by city
+//   ?q=<text>           free-text over name/clinic/specialization
+//   ?sortBy=rating|name (default: rating — highest avg first, unrated last)
 router.get("/", async (req, res) => {
   const { cityId, q } = req.query;
+  const sortBy = (req.query.sortBy || "rating").toLowerCase();
   const params = [];
   const isAdmin = (req.baseUrl || "").includes("/admin");
   const where  = isAdmin ? [] : [
@@ -48,10 +63,22 @@ router.get("/", async (req, res) => {
     );
   }
 
+  // Sort: "rating" pushes unrated rows to the bottom, then avg desc, then name.
+  // "name" is a simple alphabetical fallback used by callers that want stable
+  // ordering (e.g. admin CRUD screens where rating order is confusing).
+  const orderSQL = sortBy === "name"
+    ? "ORDER BY d.name ASC"
+    : "ORDER BY (COALESCE(rt.rating_count,0) = 0) ASC, COALESCE(rt.avg_stars,0) DESC, d.name ASC";
+
+  // Pagination — keep an upper bound so a bad client cannot fetch the whole
+  // table. Defaults preserve the original behaviour (single page of up to 100).
+  const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit, 10)  || 100));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
   try {
     const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const { rows } = await pool.query(
-      `${DOC_SELECT} ${whereSQL} ORDER BY d.name LIMIT 100`,
+      `${DOC_SELECT} ${whereSQL} ${orderSQL} LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     res.json(rows);

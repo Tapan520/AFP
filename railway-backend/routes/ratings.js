@@ -79,6 +79,64 @@ router.get("/targets", authenticate, async (req, res) => {
   }
 });
 
+// ── GET /api/ratings/for/:type/:id (PUBLIC) ─────────────────────────────────
+// Read-only list of reviews for a single doctor / shop. Used by the "tap the
+// stars to see reviews" UX on Find-a-Vet / Pet-Food-Shops cards and by the
+// SEO-indexed /vets/{city} and /shops/{city} Razor pages. Reviewer names are
+// truncated to first name only so we don't leak PII to unauthenticated users.
+router.get("/for/:type/:id", async (req, res) => {
+  const type = String(req.params.type || "").toLowerCase();
+  const id   = Number(req.params.id);
+  if (!VALID_TYPES.has(type)) return res.status(400).json({ error: "type must be 'doctor' or 'shop'." });
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "id is required." });
+  const limit  = Math.min(50, Math.max(1, parseInt(req.query.limit, 10)  || 20));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  try {
+    const { rows: [summary] } = await pool.query(
+      `SELECT COUNT(*)::int              AS rating_count,
+              COALESCE(AVG(stars), 0)    AS average_rating
+         FROM ratings
+        WHERE target_type = $1 AND target_id = $2`,
+      [type, id]
+    );
+    const { rows } = await pool.query(
+      `SELECT r.id, r.stars, r.comment, r.created_at, r.updated_at,
+              u.name AS reviewer_name
+         FROM ratings r
+         LEFT JOIN users u ON u.id = r.user_id
+        WHERE r.target_type = $1 AND r.target_id = $2
+        ORDER BY r.updated_at DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+      [type, id]
+    );
+    // Strip PII: keep first name only ("Amit Jain" → "Amit J.")
+    const safe = rows.map(r => {
+      const parts = (r.reviewer_name || "").trim().split(/\s+/);
+      const first = parts[0] || "Anonymous";
+      const last  = parts[1] ? ` ${parts[1][0]}.` : "";
+      return {
+        id:            r.id,
+        stars:         r.stars,
+        comment:       r.comment,
+        created_at:    r.created_at,
+        updated_at:    r.updated_at,
+        reviewer_name: `${first}${last}`,
+      };
+    });
+    res.set("Cache-Control", "public, max-age=60");
+    res.json({
+      summary: {
+        rating_count:   Number(summary?.rating_count || 0),
+        average_rating: Number(summary?.average_rating || 0),
+      },
+      rows: safe,
+    });
+  } catch (err) {
+    console.error("GET /ratings/for error:", err.message);
+    res.status(500).json({ error: "Failed to load reviews." });
+  }
+});
+
 // ── GET /api/ratings/mine ───────────────────────────────────────────────────
 router.get("/mine", authenticate, async (req, res) => {
   try {
