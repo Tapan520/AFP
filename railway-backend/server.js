@@ -19,6 +19,7 @@ const petsRouter        = require("./routes/pets");
 const adminUsersRouter  = require("./routes/adminUsers");
 const adminBackupsRouter  = require("./routes/adminBackups");
 const adminAnalyticsRouter= require("./routes/adminAnalytics");
+const adminInsightsRouter = require("./routes/adminInsights");
 const adminAuditLogsRouter= require("./routes/adminAuditLogs");
 const doctorsRouter     = require("./routes/doctors");
 const shopsRouter       = require("./routes/shops");
@@ -256,6 +257,9 @@ app.use("/api/admin/backups", adminBackupsRouter);
 
 // Analytics dashboard (ward_admin and above; results are geo-scoped)
 app.use("/api/admin/analytics", adminAnalyticsRouter);
+
+// Pet registration insights (ward_admin+; breakdowns by species/breed/etc.)
+app.use("/api/admin/insights", adminInsightsRouter);
 
 // Activity / audit logs (super_admin only)
 app.use("/api/admin/audit-logs", adminAuditLogsRouter);

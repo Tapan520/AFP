@@ -88,6 +88,7 @@ const tabs = [
     { key: "overview",   label: "Overview" },
     { key: "pending",    label: `Pending (${AdminState.adminPending.length})` },
     { key: "pets",       label: "Pets" },
+    { key: "insights",   label: "\ud83d\udcca Insights" },
     ...(canManageUsers ? [{ key: "users",     label: "\ud83d\udc65 Users"     }] : []),
     ...(canManageUsers ? [{ key: "reports",   label: "\ud83d\udccb Reports"   }] : []),
     ...(canManageUsers ? [{ key: "billing",   label: "&#x1F4B3; Billing"     }] : []),
@@ -234,6 +235,10 @@ async function renderAdminTab(tab) {
 
     } else if (tab === "users") {
         await UserMgmt.loadUserMgmt(body);
+
+    } else if (tab === "insights") {
+        await renderAdminInsights(body);
+
 
     } else if (tab === "reports") {
         await renderAdminReports(body);
@@ -1574,6 +1579,330 @@ async function adminFeedbackApply() {
     } catch (ex) {
         if (listEl) listEl.innerHTML = alertBoxHTML("err", "Failed: " + ex.message);
     }
+}
+
+// ?? Insights (pet-registration breakdowns for Nigam/Ward admins) ??????????
+// A lightweight, dependency-free view over /api/admin/insights. Shows KPIs +
+// horizontal CSS bar charts for species, top breeds, gender, age groups and
+// licence status — all scoped to the caller's ward/zone/nigam/city. Each bar
+// is clickable and drills down into the actual pet list via
+// /api/admin/insights/pets.
+
+// Date-range filter state — shared between the summary view and every
+// drill-down. Empty strings = "no bound" (i.e. "all time" on that side).
+const InsightsDate = { from: "", to: "" };
+
+// Encode { from, to } to a query-string fragment (may be empty).
+function _insightsDateQs() {
+    const p = new URLSearchParams();
+    if (InsightsDate.from) p.set("from", InsightsDate.from);
+    if (InsightsDate.to)   p.set("to",   InsightsDate.to);
+    return p.toString();
+}
+
+// Quick-range chip handler. Reads a preset key and rewrites From/To.
+function insightsSetRange(preset) {
+    const today = new Date();
+    const iso   = (d) => d.toISOString().slice(0, 10);
+    let from = "", to = iso(today);
+    if (preset === "7d")       from = iso(new Date(today.getTime() - 7  * 864e5));
+    else if (preset === "30d") from = iso(new Date(today.getTime() - 30 * 864e5));
+    else if (preset === "90d") from = iso(new Date(today.getTime() - 90 * 864e5));
+    else if (preset === "ytd") from = iso(new Date(today.getFullYear(), 0, 1));
+    else if (preset === "all") { from = ""; to = ""; }
+    InsightsDate.from = from;
+    InsightsDate.to   = to;
+    renderAdminInsights(document.getElementById("admin-body"));
+}
+
+function insightsApplyCustomRange() {
+    const f = document.getElementById("insights-from")?.value || "";
+    const t = document.getElementById("insights-to")?.value   || "";
+    if (f && t && f > t) { AFP.tst("From date must be on or before To date."); return; }
+    InsightsDate.from = f;
+    InsightsDate.to   = t;
+    renderAdminInsights(document.getElementById("admin-body"));
+}
+
+async function renderAdminInsights(body) {
+    renderLoading(body);
+    const user = AFP.getUser();
+    try {
+        const qs   = _insightsDateQs();
+        const data = await AFP.GET(`/api/admin/insights${qs ? "?" + qs : ""}`);
+        const t    = data.totals || {};
+        const scopeLabel = user?.role === "super_admin" ? "System-wide"
+            : user?.role === "city_admin"  ? `${escHtml(user?.city_name || "")} — City`
+            : user?.role === "nigam_admin" ? `${escHtml(user?.nigam_name || "")} — Nigam`
+            : user?.role === "zone_admin"  ? `${escHtml(user?.zone_name || "")} — Zone`
+            :                                `${escHtml(user?.ward_number || "")} — Ward`;
+
+        // Emoji lookups
+        const spIco = { dog: "\ud83d\udc36", cat: "\ud83d\udc31", other: "\ud83d\udc3e", unknown: "\u2753" };
+        const gnIco = { male: "\u2642", female: "\u2640", unknown: "\u2753" };
+
+        // Horizontal bar helper — bar payload is stashed in InsightsFilters[]
+        // and referenced by index so onclick= stays valid HTML without any
+        // nested-JSON escaping headaches.
+        window._insightsFilters = [];
+        const bar = (label, count, max, color, filterObj, drillLabel) => {
+            const pct = max > 0 ? Math.max(2, Math.round((count / max) * 100)) : 0;
+            const clickable = filterObj && count > 0;
+            let onclickAttr = "";
+            if (clickable) {
+                const idx = window._insightsFilters.length;
+                window._insightsFilters.push({ filter: filterObj, label: drillLabel || label });
+                onclickAttr = `onclick="insightsDrillDown(${idx})"`;
+            }
+            return `
+            <div style="margin-bottom:8px;${clickable ? "cursor:pointer" : ""}" ${onclickAttr}>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                    <span style="color:var(--tx)">${label}</span>
+                    <span style="color:var(--tx2);font-weight:600">${count}${clickable ? ' <span style="color:var(--or);font-size:10px">›</span>' : ""}</span>
+                </div>
+                <div style="background:var(--sf2);border-radius:5px;height:8px;overflow:hidden">
+                    <div style="width:${pct}%;height:100%;background:${color};border-radius:5px"></div>
+                </div>
+            </div>`;
+        };
+
+        const kpi = (label, value, color, filterObj, drillLabel) => {
+            let onclickAttr = "", cursor = "";
+            if (filterObj && Number(value) > 0) {
+                const idx = window._insightsFilters.length;
+                window._insightsFilters.push({ filter: filterObj, label: drillLabel || label });
+                onclickAttr = `onclick="insightsDrillDown(${idx})"`;
+                cursor = "cursor:pointer;";
+            }
+            return `
+            <div class="scard" style="flex:1;min-width:110px;${cursor}" ${onclickAttr}>
+                <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${label}</div>
+                <div style="font-size:22px;font-weight:700;${color ? `color:${color}` : ""}">${value}</div>
+            </div>`;
+        };
+
+        // Species bars
+        const spMax = Math.max(1, ...(data.bySpecies || []).map(s => s.count));
+        const spBars = (data.bySpecies || []).map(s =>
+            bar(`${spIco[s.species] || "\u{1F43E}"} ${escHtml(s.species)}`, s.count, spMax, "#E8670A",
+                { species: s.species }, `Species: ${s.species}`)
+        ).join("") || `<div style="font-size:12px;color:var(--tx3)">No pets yet.</div>`;
+
+        // Top breeds bars
+        const brMax = Math.max(1, ...(data.byBreed || []).map(b => b.count));
+        const brBars = (data.byBreed || []).map(b =>
+            bar(`${spIco[b.species] || "\u{1F43E}"} ${escHtml(b.breed)}`, b.count, brMax, "#1E6FD9",
+                { breed: b.breed, species: b.species }, `Breed: ${b.breed}`)
+        ).join("") || `<div style="font-size:12px;color:var(--tx3)">No breed data recorded.</div>`;
+
+        // Gender bars
+        const gnMax = Math.max(1, ...(data.byGender || []).map(g => g.count));
+        const gnBars = (data.byGender || []).map(g =>
+            bar(`${gnIco[g.gender] || "\u2753"} ${escHtml(g.gender)}`, g.count, gnMax, "#9333EA",
+                { gender: g.gender }, `Gender: ${g.gender}`)
+        ).join("") || `<div style="font-size:12px;color:var(--tx3)">No data.</div>`;
+
+        // Age group bars — bucket string "puppy (<1 yr)" -> ageGroup key
+        const ageKey = (b) => b.startsWith("puppy") ? "puppy"
+            : b.startsWith("young")  ? "young"
+            : b.startsWith("adult")  ? "adult"
+            : b.startsWith("senior") ? "senior" : "unknown";
+        const agMax = Math.max(1, ...(data.byAgeGroup || []).map(a => a.count));
+        const agBars = (data.byAgeGroup || []).map(a =>
+            bar(escHtml(a.bucket), a.count, agMax, "#16A34A",
+                { ageGroup: ageKey(a.bucket) }, `Age: ${a.bucket}`)
+        ).join("") || `<div style="font-size:12px;color:var(--tx3)">No data.</div>`;
+
+        // Licence status bars
+        const lsFilter = { "active":"active", "expiring in 30d":"expiring", "expired":"expired", "no expiry set":"none" };
+        const lsColor  = { "active":"#16A34A", "expiring in 30d":"#D97706", "expired":"#DC2626", "no expiry set":"#5A564F" };
+        const lsMax = Math.max(1, ...(data.byLicenceStatus || []).map(l => l.count));
+        const lsBars = (data.byLicenceStatus || []).map(l =>
+            bar(escHtml(l.status), l.count, lsMax, lsColor[l.status] || "#5A564F",
+                { licenceStatus: lsFilter[l.status] || "" }, `Licence: ${l.status}`)
+        ).join("") || `<div style="font-size:12px;color:var(--tx3)">No licences yet.</div>`;
+
+        body.innerHTML = `
+            <div style="margin-bottom:14px">
+                <div style="font-size:17px;font-weight:700">\ud83d\udcca Pet Registration Insights</div>
+                <div style="font-size:12px;color:var(--tx2);margin-top:2px">Scope: ${scopeLabel}</div>
+            </div>
+            <div class="card" style="margin-bottom:14px">
+                <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+                    &#x1F4C5; Registered between
+                    ${(InsightsDate.from || InsightsDate.to)
+                        ? `<span style="color:var(--or);font-weight:600;text-transform:none;letter-spacing:0">
+                             · ${escHtml(InsightsDate.from || "beginning")} → ${escHtml(InsightsDate.to || "today")}</span>`
+                        : `<span style="color:var(--tx3);font-weight:400;text-transform:none;letter-spacing:0"> · all time</span>`}
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                    <button class="chip" onclick="insightsSetRange('7d')">Last 7d</button>
+                    <button class="chip" onclick="insightsSetRange('30d')">Last 30d</button>
+                    <button class="chip" onclick="insightsSetRange('90d')">Last 90d</button>
+                    <button class="chip" onclick="insightsSetRange('ytd')">Year to date</button>
+                    <button class="chip${(!InsightsDate.from && !InsightsDate.to) ? " active" : ""}" onclick="insightsSetRange('all')">All time</button>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                    <div class="field" style="margin:0;flex:1;min-width:130px">
+                        <label class="field-label">From</label>
+                        <input id="insights-from" type="date" class="field-input" value="${escHtml(InsightsDate.from || "")}">
+                    </div>
+                    <div class="field" style="margin:0;flex:1;min-width:130px">
+                        <label class="field-label">To</label>
+                        <input id="insights-to" type="date" class="field-input" value="${escHtml(InsightsDate.to || "")}">
+                    </div>
+                    <button class="btn btn-primary btn-small btn-w-auto" style="padding:9px 16px"
+                        onclick="insightsApplyCustomRange()">&#x1F50D; Apply</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:9px;margin-bottom:14px;flex-wrap:wrap">
+                ${kpi("Total",       t.total || 0, "", {}, "All pets")}
+                ${kpi("Approved",    t.approved || 0, "var(--ok)", { status: "approved" }, "Approved pets")}
+                ${kpi("Pending",     t.pending || 0, "var(--wn)", { status: "pending" },  "Pending pets")}
+                ${kpi("Rejected",    t.rejected || 0, "var(--er)", { status: "rejected" }, "Rejected pets")}
+            </div>
+            <div style="display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap">
+                ${kpi("Active licence", t.active || 0,       "var(--ok)", { licenceStatus: "active" },   "Active licences")}
+                ${kpi("Expiring 30d",   t.expiring_30d || 0,  "var(--wn)", { licenceStatus: "expiring" }, "Expiring in 30 days")}
+                ${kpi("Expired",        t.expired || 0,       "var(--er)", { licenceStatus: "expired" },  "Expired licences")}
+                ${kpi("Breeding opt-in",t.breeding_opt_in || 0, "",        { breedingOptIn: "yes" },      "Breeding opt-in")}
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+                <div class="card">
+                    <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:10px">By Species</div>
+                    ${spBars}
+                </div>
+                <div class="card">
+                    <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:10px">By Gender</div>
+                    ${gnBars}
+                </div>
+                <div class="card">
+                    <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:10px">Age Groups</div>
+                    ${agBars}
+                </div>
+                <div class="card">
+                    <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:10px">Licence Status (approved)</div>
+                    ${lsBars}
+                </div>
+                <div class="card" style="grid-column:1 / -1">
+                    <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;margin-bottom:10px">Top Breeds</div>
+                    ${brBars}
+                </div>
+            </div>`;
+    } catch (ex) {
+        body.innerHTML = alertBoxHTML("err", "Failed to load insights: " + ex.message);
+    }
+}
+
+// Drill down from an insights bar/KPI into the actual pet list. Fetches from
+// /api/admin/insights/pets with the filter attached and renders a table with
+// a "Back" button that re-renders the summary view.
+async function insightsDrillDown(idx) {
+    const entry = (window._insightsFilters || [])[idx];
+    if (!entry) return;
+    const body = document.getElementById("admin-body");
+    if (!body) return;
+    renderLoading(body);
+    try {
+        const p = new URLSearchParams();
+        Object.entries(entry.filter || {}).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+        if (InsightsDate.from) p.set("from", InsightsDate.from);
+        if (InsightsDate.to)   p.set("to",   InsightsDate.to);
+        const rows = await AFP.GET(`/api/admin/insights/pets?${p}`);
+        const statusBadge = (s) => s === "approved" ? badgeHTML("Approved", "ok")
+            : s === "pending"  ? badgeHTML("Pending", "pn")
+            : s === "rejected" ? badgeHTML("Rejected", "rj")
+            : badgeHTML(s || "", "in");
+        const vaxLbl = (p) => {
+            if (!p.vaccine_next_due) return `<span style="color:var(--tx3)">\u2014</span>`;
+            const d = AFP.daysTo(p.vaccine_next_due);
+            if (d < 0)      return `<span style="color:var(--er)">Overdue ${Math.abs(d)}d</span>`;
+            if (d <= 30)    return `<span style="color:var(--wn)">Due ${d}d</span>`;
+            return `<span style="color:var(--ok)">OK</span>`;
+        };
+        const licLbl = (p) => {
+            if (!p.licence_expiry_date) return `<span style="color:var(--tx3)">\u2014</span>`;
+            const d = AFP.daysTo(p.licence_expiry_date);
+            if (d < 0)   return `<span style="color:var(--er)">Expired</span>`;
+            if (d <= 30) return `<span style="color:var(--wn)">${d}d</span>`;
+            return AFP.fmt(p.licence_expiry_date);
+        };
+
+        body.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+                <button class="btn btn-ghost btn-small btn-w-auto" style="padding:8px 14px"
+                    onclick="renderAdminTab('insights')">&#8592; Back to Insights</button>
+                <div style="flex:1;min-width:160px">
+                    <div style="font-size:16px;font-weight:700">\ud83d\udd0d ${escHtml(entry.label)}</div>
+                    <div style="font-size:11px;color:var(--tx2)">${rows.length} pet${rows.length === 1 ? "" : "s"} · showing up to 500${
+                        (InsightsDate.from || InsightsDate.to)
+                            ? ` · <span style="color:var(--or)">${escHtml(InsightsDate.from || "beginning")} \u2192 ${escHtml(InsightsDate.to || "today")}</span>`
+                            : ""}</div>
+                </div>
+                <button class="btn btn-outline btn-small btn-w-auto" style="padding:8px 14px"
+                    onclick="insightsExportCsv(${idx})">&#x1F4C4; CSV</button>
+            </div>
+            ${rows.length === 0 ? alertBoxHTML("info", "No pets match this filter.") : `
+            <div style="overflow-x:auto;border:1px solid var(--bd);border-radius:10px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:800px">
+                    <thead><tr style="background:var(--sf2)">
+                        ${["Pet","Species","Breed","Gender","Age","Owner","Mobile","Ward","Nigam","Status","Vaccine","Licence"]
+                          .map(h => `<th style="text-align:left;padding:8px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2);white-space:nowrap">${h}</th>`).join("")}
+                    </tr></thead>
+                    <tbody>
+                        ${rows.map(p => `
+                        <tr style="border-top:1px solid var(--bd);cursor:pointer" onclick="openPet(${p.id})">
+                            <td style="padding:8px 9px">
+                                <div style="font-weight:600">${escHtml(p.name || "")}</div>
+                                <div style="font-size:10px;color:var(--tx3);font-family:monospace">${escHtml(p.pet_id || "")}</div>
+                            </td>
+                            <td style="padding:8px 9px">${escHtml(p.species || "\u2014")}</td>
+                            <td style="padding:8px 9px">${escHtml(p.breed || "\u2014")}</td>
+                            <td style="padding:8px 9px">${escHtml(p.gender || "\u2014")}</td>
+                            <td style="padding:8px 9px">${p.age_years != null ? p.age_years + "y" : "\u2014"}</td>
+                            <td style="padding:8px 9px">${escHtml(p.owner_name || "\u2014")}</td>
+                            <td style="padding:8px 9px;white-space:nowrap">${escHtml(p.owner_mobile || "\u2014")}</td>
+                            <td style="padding:8px 9px">${escHtml(p.ward_number || "\u2014")}</td>
+                            <td style="padding:8px 9px;color:var(--tx2)">${escHtml(p.nigam_name || "\u2014")}</td>
+                            <td style="padding:8px 9px">${statusBadge(p.registration_status)}</td>
+                            <td style="padding:8px 9px">${vaxLbl(p)}</td>
+                            <td style="padding:8px 9px">${licLbl(p)}</td>
+                        </tr>`).join("")}
+                    </tbody>
+                </table>
+            </div>`}
+            `;
+        body._drillRows = rows;
+    } catch (ex) {
+        body.innerHTML = alertBoxHTML("err", "Failed to load drill-down: " + ex.message);
+    }
+}
+
+// Export the current drill-down table as CSV (Excel-friendly, BOM prefix).
+function insightsExportCsv(idx) {
+    const body = document.getElementById("admin-body");
+    const rows = body?._drillRows || [];
+    const entry = (window._insightsFilters || [])[idx] || { label: "pets" };
+    if (!rows.length) { AFP.tst("Nothing to export."); return; }
+    const q = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const cols = ["pet_id","name","species","breed","gender","age_years","owner_name","owner_mobile",
+                  "ward_number","nigam_name","city_name","registration_status",
+                  "vaccine_next_due","licence_expiry_date","breeding_opt_in","created_at"];
+    const lines = [cols.join(",")];
+    rows.forEach(r => lines.push(cols.map(c => q(r[c])).join(",")));
+    const csv = "\uFEFF" + lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `insights-${entry.label.replace(/[^A-Za-z0-9]+/g, "_").toLowerCase()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    AFP.tst("CSV exported.");
 }
 
 // ?? Analytics dashboard (Overview tab) ?????????????????????????????????????
