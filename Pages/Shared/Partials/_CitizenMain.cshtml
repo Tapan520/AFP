@@ -108,7 +108,14 @@
             </div>
             <div style="height:13px"></div>
             <div class="d-row">
-                <div class="field" style="margin-bottom:0"><label class="field-label">Breed *</label><input id="np-breed" class="field-input" placeholder="e.g. Labrador" /></div>
+                <div class="field" style="margin-bottom:0">
+                    <label class="field-label">Breed *</label>
+                    <select id="np-breed" class="field-input">
+                        <option value="">Select breed…</option>
+                    </select>
+                    <input id="np-breed-other" class="field-input" placeholder="Enter breed name"
+                           style="display:none;margin-top:6px" />
+                </div>
                 <div class="field" style="margin-bottom:0"><label class="field-label">Colour *</label><input id="np-colour" class="field-input" placeholder="e.g. Golden" /></div>
             </div>
             <div style="height:13px"></div>

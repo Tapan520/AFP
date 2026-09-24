@@ -722,6 +722,66 @@ async function generateCertificateById(petId) {
 }
 
 // ?? SCREEN: NEW PET ???????????????????????????????????????????????????????????
+// Curated breed lists per species. Dogs include the large/aggressive breeds
+// used by the fee-tier classifier so citizens pick from a canonical list.
+const BREED_OPTIONS = {
+    dog: [
+        "Labrador", "Golden Retriever", "German Shepherd", "Rottweiler", "Doberman",
+        "Boxer", "Beagle", "Bulldog", "Pug", "Pomeranian", "Shih Tzu", "Dachshund",
+        "Siberian Husky", "Alaskan Malamute", "Saint Bernard", "Great Dane",
+        "Cocker Spaniel", "Dalmatian", "Chihuahua", "Poodle", "Bull Terrier",
+        "Cane Corso", "Mastiff", "Bullmastiff", "American Bully", "Pit Bull",
+        "Belgian Malinois", "Rhodesian Ridgeback", "Tibetan Mastiff",
+        "Bernese Mountain Dog", "Samoyed", "Akita", "Chow Chow",
+        "Rajapalayam", "Kombai", "Chippiparai", "Indian Pariah", "Indie / Mixed",
+    ],
+    cat: [
+        "Persian", "Siamese", "Maine Coon", "British Shorthair", "Ragdoll",
+        "Bengal", "Sphynx", "Russian Blue", "Scottish Fold", "Himalayan",
+        "Bombay", "Indian Billi / Mixed",
+    ],
+    rabbit: [
+        "Holland Lop", "Netherland Dwarf", "Mini Lop", "Flemish Giant",
+        "Rex", "Angora", "Lionhead", "Dutch", "New Zealand White", "Mixed",
+    ],
+    bird: [
+        "Budgerigar (Budgie)", "Cockatiel", "Lovebird", "African Grey Parrot",
+        "Indian Ringneck", "Macaw", "Cockatoo", "Canary", "Finch", "Java Sparrow",
+    ],
+    other: [],
+};
+
+function _populateBreedPicker(species) {
+    const sel   = document.getElementById("np-breed");
+    const other = document.getElementById("np-breed-other");
+    if (!sel) return;
+    const list = BREED_OPTIONS[species] || [];
+    sel.innerHTML = `<option value="">Select breed\u2026</option>` +
+        list.map(b => `<option value="${escHtml(b)}">${escHtml(b)}</option>`).join("") +
+        `<option value="__other__">Other\u2026</option>`;
+    if (other) { other.style.display = "none"; other.value = ""; }
+}
+
+function _onBreedSelectChange() {
+    const sel   = document.getElementById("np-breed");
+    const other = document.getElementById("np-breed-other");
+    if (!sel || !other) return;
+    if (sel.value === "__other__") {
+        other.style.display = "";
+        other.focus();
+    } else {
+        other.style.display = "none";
+        other.value = "";
+    }
+}
+
+function _currentBreedValue() {
+    const sel   = document.getElementById("np-breed");
+    const other = document.getElementById("np-breed-other");
+    if (!sel) return "";
+    return sel.value === "__other__" ? (other?.value.trim() || "") : sel.value;
+}
+
 function initNewPet() {
     PetState.resetNewPet();
     const form = document.getElementById("newpet-form");
@@ -730,13 +790,23 @@ function initNewPet() {
     Validate.injectErrorContainers("newPet");
     Validate.attachLive("newPet");
 
-    // Live per-species/size fee preview — recompute whenever species or breed
-    // changes so the citizen sees the exact fee before submitting.
+    // Populate breed dropdown based on initial species and keep it in sync.
     const spEl    = document.getElementById("np-species");
     const brEl    = document.getElementById("np-breed");
-    const refresh = () => _refreshRegistrationFeePreview(spEl?.value, brEl?.value);
-    spEl?.addEventListener("change", refresh);
-    brEl?.addEventListener("input",  refresh);
+    const brOther = document.getElementById("np-breed-other");
+    _populateBreedPicker(spEl?.value || "dog");
+
+    // Live per-species/size fee preview — recompute whenever species or breed
+    // changes so the citizen sees the exact fee before submitting.
+    const refresh = () => _refreshRegistrationFeePreview(spEl?.value, _currentBreedValue());
+
+    spEl?.addEventListener("change", () => {
+        _populateBreedPicker(spEl.value);
+        refresh();
+    });
+    brEl?.addEventListener("change", () => { _onBreedSelectChange(); refresh(); });
+    brOther?.addEventListener("input", refresh);
+
     // Trigger once so the label shows on first render.
     setTimeout(refresh, 0);
 
@@ -744,12 +814,16 @@ function initNewPet() {
         e.preventDefault();
         if (!Validate.validateForm("newPet")) return;
         const name   = document.getElementById("np-name").value.trim();
-        const breed  = document.getElementById("np-breed").value.trim();
+        const breed  = _currentBreedValue().trim();
         const colour = document.getElementById("np-colour").value.trim();
         const dob    = document.getElementById("np-dob").value;
         const err    = document.getElementById("np-err");
         const btn    = document.getElementById("np-btn");
         err.innerHTML = "";
+        if (!breed) {
+            err.innerHTML = alertBoxHTML("err", "Please select a breed.");
+            return;
+        }
         if (btn) btn.classList.add("loading");
         // PAYMENT DISABLED — register pet directly for end-to-end flow testing
         try {

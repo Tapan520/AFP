@@ -138,7 +138,12 @@ async function loadDashboard() {
 
         body.innerHTML = `
             <div class="p-18" style="padding-bottom:6px">
-                <div class="cpill"><span class="cpill-tx">&#x1F4CD; ${escHtml(user.city_name || "City")}</span></div>
+                <div class="cpill"><span class="cpill-tx">&#x1F4CD; ${escHtml([
+                    user.city_name,
+                    user.nigam_name,
+                    user.zone_name,
+                    user.ward_number ? "Ward " + user.ward_number : null,
+                ].filter(Boolean).join(" \u00B7 ") || "Location")}</span></div>
                 <div style="font-size:21px;font-weight:700;margin-bottom:2px">Hello, ${escHtml(firstName)} &#x1F44B;</div>
                 <div style="font-size:13px;color:var(--tx2)">Manage your registered pets</div>
             </div>
