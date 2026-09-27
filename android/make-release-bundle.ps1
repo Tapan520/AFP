@@ -14,9 +14,12 @@ $ErrorActionPreference = "Stop"
 
 $androidDir = Join-Path $PSScriptRoot "."
 $repoRoot   = Split-Path -Parent $androidDir
-$jks        = Join-Path $androidDir "afp-release.jks"
+# Gradle resolves `storeFile` relative to the :app module directory, so the
+# keystore must live in android\app\, NOT android\.
+$appDir     = Join-Path $androidDir "app"
+$jks        = Join-Path $appDir     "afp-release.jks"
 $props      = Join-Path $androidDir "keystore.properties"
-$outBundle  = Join-Path $androidDir "app\build\outputs\bundle\release\app-release.aab"
+$outBundle  = Join-Path $appDir     "build\outputs\bundle\release\app-release.aab"
 
 function Find-Keytool {
     # Prefer JAVA_HOME, then PATH, then common Windows install locations.
