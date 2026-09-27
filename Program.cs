@@ -77,7 +77,7 @@ app.UseAuthorization();
 app.MapGet("/robots.txt", (HttpContext ctx) =>
 {
     var host = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-    var body = $"User-agent: *\nAllow: /\nDisallow: /Error\nDisallow: /uploads/\nSitemap: {host}/sitemap.xml\n";
+    var body = $"User-agent: *\nAllow: /\nAllow: /privacy\nDisallow: /Error\nDisallow: /uploads/\nSitemap: {host}/sitemap.xml\n";
     ctx.Response.ContentType = "text/plain; charset=utf-8";
     return ctx.Response.WriteAsync(body);
 });
@@ -105,7 +105,7 @@ app.MapGet("/.well-known/assetlinks.json", async (HttpContext ctx, IWebHostEnvir
 app.MapGet("/sitemap.xml", async (HttpContext ctx, IHttpClientFactory httpFactory) =>
 {
     var host  = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-    var urls  = new List<string> { $"{host}/", $"{host}/vets", $"{host}/shops" };
+    var urls  = new List<string> { $"{host}/", $"{host}/vets", $"{host}/shops", $"{host}/privacy" };
 
     try
     {

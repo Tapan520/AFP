@@ -1,0 +1,212 @@
+@page "/privacy"
+@model AFP.Pages.PrivacyModel
+@{
+    Layout = "_MarketingLayout";
+    ViewData["Title"] = "Privacy Policy";
+    ViewData["Description"] = "How the All For Pets Municipal Registry web and Android app collect, use, share and protect your personal data.";
+}
+
+@section Head {
+    <style>
+        /* ── Hero ── */
+        .pp-hero{background:linear-gradient(180deg,#FFF3E8 0%,#FFFFFF 100%);padding:64px 0 20px;text-align:center;}
+        .pp-updated{display:inline-block;margin-top:14px;font-size:13px;color:#5A564F;background:#F7F5F2;border:1px solid #E5E0D8;border-radius:999px;padding:6px 14px;}
+
+        /* ── Body ── */
+        .pp-wrap{padding:40px 0 80px;}
+        .pp-body{max-width:840px;margin:0 auto;padding:0 22px;color:#1A1814;font-size:15px;line-height:1.7;}
+        .pp-body h2{font-size:22px;font-weight:800;margin:36px 0 10px;letter-spacing:-.2px;}
+        .pp-body h3{font-size:16px;font-weight:700;margin:22px 0 8px;color:#1A1814;}
+        .pp-body p, .pp-body li{color:#3A362F;}
+        .pp-body ul{padding-left:20px;margin:8px 0 14px;}
+        .pp-body li{padding:3px 0;}
+        .pp-body a{color:#E8670A;font-weight:600;}
+        .pp-body code{background:#F7F5F2;border:1px solid #E5E0D8;border-radius:6px;padding:1px 6px;font-size:13px;}
+
+        .pp-toc{background:#FFF9F3;border:1px solid #F1E3D0;border-radius:14px;padding:20px 22px;margin:24px 0 8px;}
+        .pp-toc h4{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#5A564F;}
+        .pp-toc ol{margin:0;padding-left:22px;column-count:2;column-gap:28px;}
+        .pp-toc li{padding:3px 0;font-size:14px;}
+        @@media (max-width:700px){ .pp-toc ol{column-count:1;} }
+
+        .pp-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #E5E0D8;border-radius:12px;overflow:hidden;margin:12px 0 18px;}
+        .pp-table th,.pp-table td{padding:12px 14px;text-align:left;font-size:14px;border-bottom:1px solid #E5E0D8;vertical-align:top;}
+        .pp-table th{background:#1A1814;color:#fff;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.8px;}
+        .pp-table tr:last-child td{border-bottom:none;}
+
+        .pp-contact{background:linear-gradient(135deg,#1A1814 0%,#2D2820 100%);border-radius:18px;padding:32px;color:#fff;margin-top:40px;}
+        .pp-contact h2{color:#fff;margin-top:0;}
+        .pp-contact a{color:#F5D87A;}
+    </style>
+}
+
+<!-- ═════════════════ HERO ═════════════════ -->
+<section class="pp-hero">
+    <div class="mk-container">
+        <span class="mk-pill">Legal</span>
+        <h1 class="mk-h1">Privacy Policy</h1>
+        <p class="mk-lead" style="margin-left:auto;margin-right:auto">
+            This policy explains what personal data the All For Pets web app and Android app collect, why we collect it, and the choices you have. It applies to both citizen users and municipal staff.
+        </p>
+        <span class="pp-updated">Last updated: @Model.LastUpdated</span>
+    </div>
+</section>
+
+<!-- ═════════════════ BODY ═════════════════ -->
+<section class="pp-wrap">
+    <div class="pp-body">
+
+        <div class="pp-toc" aria-label="Table of contents">
+            <h4>On this page</h4>
+            <ol>
+                <li><a href="#who">Who we are</a></li>
+                <li><a href="#data">Data we collect</a></li>
+                <li><a href="#why">Why we use it</a></li>
+                <li><a href="#legal">Legal basis</a></li>
+                <li><a href="#share">Who we share it with</a></li>
+                <li><a href="#retention">How long we keep it</a></li>
+                <li><a href="#security">How we protect it</a></li>
+                <li><a href="#rights">Your rights</a></li>
+                <li><a href="#children">Children</a></li>
+                <li><a href="#android">Android app permissions</a></li>
+                <li><a href="#changes">Changes to this policy</a></li>
+                <li><a href="#contact">Contact us</a></li>
+            </ol>
+        </div>
+
+        <h2 id="who">1. Who we are</h2>
+        <p>
+            &ldquo;All For Pets&rdquo; (&ldquo;<strong>AFP</strong>&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) is a Municipal Pet Registry platform operated by the AFP team, contactable at <a href="mailto:hello@allforpets.in">hello@allforpets.in</a>. AFP is offered to Municipal Corporations (Nigams) to license and manage pets in their jurisdiction. When you use AFP as a citizen, the municipal body operating your city&rsquo;s deployment is the <em>data controller</em>, and AFP acts as the <em>data processor</em> on their behalf.
+        </p>
+
+        <h2 id="data">2. Data we collect</h2>
+
+        <h3>Data you give us</h3>
+        <ul>
+            <li><strong>Account details</strong> &mdash; name, email address, phone number, password (stored only as a <code>BCrypt</code> hash).</li>
+            <li><strong>Address details</strong> &mdash; city, Nigam, zone, ward, house/flat address used for licence issuance.</li>
+            <li><strong>Pet details</strong> &mdash; species, breed, name, age, sex, colour, microchip number (if any), vaccination status and photos.</li>
+            <li><strong>Documents</strong> &mdash; vaccination certificates, ownership proof and other files you upload for licence approval.</li>
+            <li><strong>Payment details</strong> &mdash; card, UPI or netbanking details are entered on <strong>Razorpay&rsquo;s</strong> hosted checkout; AFP never sees or stores your full card number. We only store the Razorpay <code>order_id</code>, <code>payment_id</code> and amount.</li>
+            <li><strong>Ratings, reviews and forum posts</strong> you choose to publish.</li>
+        </ul>
+
+        <h3>Data we collect automatically</h3>
+        <ul>
+            <li><strong>Device &amp; log data</strong> &mdash; IP address, browser or Android WebView user-agent, pages visited, timestamps, and errors. This is used for security, abuse prevention and debugging.</li>
+            <li><strong>Cookies &amp; local storage</strong> &mdash; used only to keep you signed in and to remember UI preferences (e.g. selected city). We do not use third-party advertising or tracking cookies.</li>
+            <li><strong>Approximate location</strong> &mdash; if you allow it in the Android app, we use your location to auto-select the nearest city / Nigam. You can decline and pick manually.</li>
+        </ul>
+
+        <h3>Data we do <em>not</em> collect</h3>
+        <ul>
+            <li>We do not collect precise background location.</li>
+            <li>We do not access your contacts, SMS, call logs or microphone.</li>
+            <li>We do not sell your personal data. Ever.</li>
+        </ul>
+
+        <h2 id="why">3. Why we use your data</h2>
+        <table class="pp-table">
+            <thead>
+                <tr><th>Purpose</th><th>Data used</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Create and authenticate your account</td><td>Name, email/phone, hashed password</td></tr>
+                <tr><td>Issue, renew and transfer pet licences</td><td>Pet details, address, documents</td></tr>
+                <tr><td>Generate the digital certificate + QR code</td><td>Owner name, pet details, licence number</td></tr>
+                <tr><td>Process payments for licence fees</td><td>Order metadata (via Razorpay)</td></tr>
+                <tr><td>Enable municipal staff to review applications</td><td>Application data, documents</td></tr>
+                <tr><td>Community features (forum, ratings, vet/shop directory)</td><td>Content you post, display name</td></tr>
+                <tr><td>Security, fraud prevention and audit logs</td><td>IP, user-agent, actions performed</td></tr>
+                <tr><td>Legal compliance and responding to authorities</td><td>Whatever is legally required</td></tr>
+            </tbody>
+        </table>
+
+        <h2 id="legal">4. Legal basis for processing</h2>
+        <p>
+            We process your data under one or more of the following legal bases: (a) performance of a contract (issuing your licence); (b) legal obligation binding on the municipal body; (c) our legitimate interests (security, product improvement); and (d) your consent, where required &mdash; for example, for location access in the Android app. You can withdraw consent at any time from the app settings.
+        </p>
+
+        <h2 id="share">5. Who we share your data with</h2>
+        <ul>
+            <li><strong>Your Municipal Corporation (Nigam)</strong> and its authorised officers &mdash; to review and approve licence applications.</li>
+            <li><strong>Razorpay Software Pvt. Ltd.</strong> &mdash; to process payments. See Razorpay&rsquo;s privacy policy at <a href="https://razorpay.com/privacy/" rel="noopener">razorpay.com/privacy</a>.</li>
+            <li><strong>Cloudinary Ltd.</strong> &mdash; to store and deliver photos and uploaded documents.</li>
+            <li><strong>Railway Corp.</strong> &mdash; our hosting provider (Mumbai region by default) for the web app and database.</li>
+            <li><strong>Google Play Services</strong> &mdash; to distribute the Android app and, if enabled, deliver crash reports.</li>
+            <li><strong>Law-enforcement or courts</strong> &mdash; only when we receive a valid legal request.</li>
+        </ul>
+        <p>We do not sell or rent personal data to advertisers or data brokers.</p>
+
+        <h2 id="retention">6. How long we keep your data</h2>
+        <ul>
+            <li><strong>Active accounts</strong> &mdash; for as long as your account exists.</li>
+            <li><strong>Issued licences</strong> &mdash; for the life of the licence plus 7 years, to satisfy municipal record-keeping.</li>
+            <li><strong>Payment records</strong> &mdash; for at least 8 years, as required by Indian tax law.</li>
+            <li><strong>Audit logs</strong> &mdash; up to 2 years.</li>
+            <li><strong>Deleted accounts</strong> &mdash; personal data is removed within 30 days; anonymised statistical data may be retained.</li>
+        </ul>
+
+        <h2 id="security">7. How we protect your data</h2>
+        <ul>
+            <li>All traffic is served over HTTPS with HSTS enabled.</li>
+            <li>Passwords are stored only as salted <code>BCrypt</code> hashes &mdash; we cannot see them.</li>
+            <li>Database connections use TLS; database credentials live in environment variables, never in source code.</li>
+            <li>Access to production data is restricted to a small number of engineers and is logged.</li>
+            <li>Signed release builds of the Android app are produced by a locked-down CI pipeline; the signing key never leaves GitHub&rsquo;s encrypted secret store.</li>
+        </ul>
+        <p>No system is ever 100% secure. If we become aware of a personal-data breach that is likely to affect you, we will notify you and the relevant authority as required by law.</p>
+
+        <h2 id="rights">8. Your rights</h2>
+        <p>Subject to the Digital Personal Data Protection Act 2023 (India) and, where applicable, the GDPR, you have the right to:</p>
+        <ul>
+            <li>Access a copy of the personal data we hold about you.</li>
+            <li>Correct data that is inaccurate or out of date.</li>
+            <li>Delete your account and associated personal data (with exceptions for licences and payments we must retain by law).</li>
+            <li>Object to or restrict certain processing.</li>
+            <li>Withdraw consent at any time (e.g. revoke location permission in Android settings).</li>
+            <li>Lodge a complaint with the Data Protection Board of India or your local supervisory authority.</li>
+        </ul>
+        <p>To exercise any of these rights, email <a href="mailto:hello@allforpets.in">hello@allforpets.in</a> from the address on your account. We respond within 30 days.</p>
+
+        <h2 id="children">9. Children</h2>
+        <p>
+            AFP is not directed to children under 13. We do not knowingly collect personal data from children. If you believe a child has provided us with personal data without a parent&rsquo;s consent, please contact us and we will delete it.
+        </p>
+
+        <h2 id="android">10. Android app permissions</h2>
+        <p>The AFP Android app (distributed via Google Play) requests only the following permissions, and only when the corresponding feature is used:</p>
+        <table class="pp-table">
+            <thead>
+                <tr><th>Permission</th><th>Why we ask</th><th>Optional?</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Internet</td><td>Required to reach our servers.</td><td>No</td></tr>
+                <tr><td>Camera</td><td>Take a photo of your pet or scan a QR code on a pet tag.</td><td>Yes</td></tr>
+                <tr><td>Photos / Media</td><td>Upload existing pet photos or vaccination certificates.</td><td>Yes</td></tr>
+                <tr><td>Approximate location (coarse)</td><td>Auto-select the nearest city / Nigam.</td><td>Yes</td></tr>
+                <tr><td>Notifications</td><td>Remind you when a licence is due for renewal.</td><td>Yes</td></tr>
+            </tbody>
+        </table>
+        <p>
+            The app is a Capacitor WebView shell that loads <a href="https://afp.up.railway.app" rel="noopener">https://afp.up.railway.app</a>. It does not contain third-party advertising SDKs or analytics trackers. QR codes scanned on physical pet tags are opened directly inside the app via Android App Links, verified against <code>/.well-known/assetlinks.json</code>.
+        </p>
+
+        <h2 id="changes">11. Changes to this policy</h2>
+        <p>
+            When we make material changes we will update the &ldquo;Last updated&rdquo; date at the top of this page and, where appropriate, notify you inside the app. Continued use of AFP after a change means you accept the revised policy.
+        </p>
+
+        <div class="pp-contact" id="contact">
+            <h2 style="margin-bottom:8px">12. Contact us</h2>
+            <p style="color:rgba(255,255,255,.85);margin:0 0 6px">
+                Data protection questions or requests to exercise your rights:
+            </p>
+            <p style="margin:0;font-size:15px">
+                <strong>Email:</strong> <a href="mailto:hello@allforpets.in">hello@allforpets.in</a><br />
+                <strong>Repository:</strong> <a href="https://github.com/Tapan520/AFP" rel="noopener">github.com/Tapan520/AFP</a>
+            </p>
+        </div>
+
+    </div>
+</section>
