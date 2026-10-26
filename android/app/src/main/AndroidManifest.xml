@@ -41,6 +41,14 @@
         </provider>
     </application>
 
+    <!-- Android 11+ package visibility: lets the app see the dialer and Maps
+         so tel: and map links can hand off to them. -->
+    <queries>
+        <intent><action android:name="android.intent.action.DIAL" /><data android:scheme="tel" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />

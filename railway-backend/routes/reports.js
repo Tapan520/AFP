@@ -48,6 +48,41 @@ router.get("/", authenticate, requireRole("ward_admin"), async (req, res) => {
   }
 });
 
+// GET /api/reports/board  - any logged-in user: Lost & Found community board.
+// Returns only lost / stray / cruelty reports from the caller's own city.
+// Reporter mobile numbers are intentionally NOT returned here.
+// (Must stay above any "/:id" routes.)
+router.get("/board", authenticate, async (req, res) => {
+  try {
+    // Read geo from the DB rather than the JWT so a stale token can't hide reports.
+    const { rows: [me] } = await pool.query(
+      `SELECT city_id FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    const select = `
+      SELECT r.id, r.report_type, r.last_seen_address,
+             r.status, r.created_at,
+             u.name AS reporter_name
+      FROM reports r
+      LEFT JOIN users u ON r.reporter_id = u.id
+      WHERE r.report_type IN ('lost','stray','cruelty')
+    `;
+    let query, params;
+    if (me?.city_id) {
+      query  = select + ` AND r.city_id = $1 ORDER BY r.created_at DESC LIMIT 200`;
+      params = [me.city_id];
+    } else {
+      // No city on the profile: show the user's own reports only.
+      query  = select + ` AND r.reporter_id = $1 ORDER BY r.created_at DESC LIMIT 200`;
+      params = [req.user.id];
+    }
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/reports  - authenticated citizen submits a report
 router.post("/", authenticate, async (req, res) => {
   const { reportType, lastSeenAddress, reporterMobile } = req.body;

@@ -457,6 +457,24 @@ function setDoctorFilter(el, city) {
     doSearchDoctor();
 }
 
+// Opens the phone dialer pre-filled with the number (works in the browser on a
+// phone and inside the Android/iOS Capacitor app). Android/iOS do not let an app
+// place a call silently without the CALL_PHONE permission, so the user taps the
+// green call button in the dialer to confirm.
+function afpDial(name, mobile) {
+    const num = String(mobile || "").replace(/[^\d+]/g, "");
+    if (num.length < 5) { AFP.tst("No phone number available for " + (name || "this contact")); return; }
+    window.location.href = "tel:" + num;
+}
+
+// Opens Google Maps directions to the given address (opens the Maps app on
+// Android/iOS, a new tab in a desktop browser).
+function afpDirections(name, parts) {
+    const q = (parts || []).filter(Boolean).join(", ").trim();
+    if (!q) { AFP.tst("No address available for " + (name || "this place")); return; }
+    window.open("https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(q), "_blank");
+}
+
 function openDoctorModal(id) {
     const results = document.getElementById("searchdoc-results");
     const d = (results?._doctors || []).find(x => x.id === id);
@@ -471,7 +489,11 @@ function openDoctorModal(id) {
         ${infoRowHTML("Specialization", d.specialization)}
         ${infoRowHTML("Mobile",         d.mobile)}`;
     document.getElementById("docmodal-call").onclick = () => {
-        AFP.tst(`Calling ${d.name}...`);
+        afpDial(d.name, d.mobile);
+        closeDoctorModal();
+    };
+    document.getElementById("docmodal-dir").onclick = () => {
+        afpDirections(d.name, [d.clinic_name, d.address, d.city_name]);
         closeDoctorModal();
     };
     document.getElementById("doc-modal").style.display = "flex";
@@ -583,7 +605,11 @@ function openShopModal(id) {
         ${infoRowHTML("Speciality", s.speciality)}
         ${infoRowHTML("Mobile",     s.mobile)}`;
     document.getElementById("shopmodal-call").onclick = () => {
-        AFP.tst(`Calling ${s.name}...`);
+        afpDial(s.name, s.mobile);
+        closeShopModal();
+    };
+    document.getElementById("shopmodal-dir").onclick = () => {
+        afpDirections(s.name, [s.name, s.address, s.city_name]);
         closeShopModal();
     };
     document.getElementById("shop-modal").style.display = "flex";

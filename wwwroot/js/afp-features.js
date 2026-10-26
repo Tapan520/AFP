@@ -294,7 +294,7 @@ async function _renderLostFound() {
     if (!body) return;
     renderLoading(body);
     try {
-        const reports = await AFP.GET("/api/reports");
+        const reports = await AFP.GET("/api/reports/board");
         const relevant = reports.filter(r => ["lost","stray","cruelty"].includes(r.report_type));
         const shown    = _lfTab === "all" ? relevant
             : relevant.filter(r => r.report_type === _lfTab);
