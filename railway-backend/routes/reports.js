@@ -83,6 +83,37 @@ router.get("/board", authenticate, async (req, res) => {
   }
 });
 
+// GET /api/reports/:id/contact  - any logged-in user: reporter's phone for the
+// "Contact Reporter" button on the Lost & Found board. Numbers are only released
+// one report at a time, for OPEN lost/stray/cruelty reports in the caller's own
+// city (or the caller's own report), never in the list payload.
+router.get("/:id/contact", authenticate, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid report id." });
+  try {
+    const { rows: [me] } = await pool.query(
+      `SELECT city_id FROM users WHERE id = $1`, [req.user.id]
+    );
+    const { rows: [r] } = await pool.query(
+      `SELECT r.reporter_id, r.city_id, r.status,
+              COALESCE(NULLIF(TRIM(r.reporter_mobile), ''), u.mobile) AS mobile,
+              u.name AS reporter_name
+       FROM reports r
+       LEFT JOIN users u ON r.reporter_id = u.id
+       WHERE r.id = $1 AND r.report_type IN ('lost','stray','cruelty')`,
+      [id]
+    );
+    if (!r) return res.status(404).json({ error: "Report not found." });
+    const allowed = r.reporter_id === req.user.id ||
+                    (me?.city_id && r.city_id === me.city_id);
+    if (!allowed) return res.status(403).json({ error: "Not available for this report." });
+    if (r.status !== "open") return res.status(409).json({ error: "This report is already resolved." });
+    res.json({ name: r.reporter_name || "Reporter", mobile: r.mobile || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/reports  - authenticated citizen submits a report
 router.post("/", authenticate, async (req, res) => {
   const { reportType, lastSeenAddress, reporterMobile } = req.body;

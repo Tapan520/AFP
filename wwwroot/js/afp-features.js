@@ -340,7 +340,7 @@ async function _renderLostFound() {
                 </div>
                 ${r.status === "open" ? `
                 <button class="btn btn-outline btn-small" style="margin-top:10px"
-                    onclick="AFP.tst('&#x1F4DE; Connecting you to the reporter...')">
+                    onclick="contactReporter(${r.id}, this)">
                     &#x1F4DE; Contact Reporter
                 </button>` : ""}
             </div>`).join("")}
@@ -354,6 +354,22 @@ async function _renderLostFound() {
 }
 
 function setLFTab(tab) { _lfTab = tab; _renderLostFound(); }
+
+// Fetches the reporter's number on demand (the board list never carries phone
+// numbers) and opens the phone dialer via afpDial (tel: link - works in the
+// browser on a phone and inside the Android/iOS Capacitor app).
+async function contactReporter(reportId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+        const c = await AFP.GET(`/api/reports/${reportId}/contact`);
+        if (!c || !c.mobile) { AFP.tst("The reporter has not shared a phone number."); return; }
+        afpDial(c.name || "the reporter", c.mobile);
+    } catch (ex) {
+        AFP.tst(ex && ex.message ? ex.message : "Could not get the reporter's contact.");
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
 
 // ??? MODULE 5: PET HEALTH JOURNAL ?????????????????????????????????????????????
 
