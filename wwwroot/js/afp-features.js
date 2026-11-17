@@ -464,7 +464,9 @@ async function loadEmergencyVet() {
             <div style="margin:14px 18px 4px">
                 <div class="alert-box alert-err">
                     <span>&#x1F6A8;</span>
-                    <p><strong>Emergency Hotline:</strong> 1962 (Animal Helpline) &nbsp;|&nbsp; 1800-200-1232</p>
+                    <p><strong>Emergency Hotline:</strong>
+                        <a href="tel:1962" style="color:inherit;font-weight:700">1962</a> (Animal Helpline) &nbsp;|&nbsp;
+                        <a href="tel:18002001232" style="color:inherit;font-weight:700">1800-200-1232</a></p>
                 </div>
             </div>
             <div style="padding:6px 18px">
@@ -503,7 +505,9 @@ function _emergencyCard(d, is24) {
                 &#x1F534; 24hr Emergency</span>` : ""}
         </div>
         <button class="btn btn-primary btn-small btn-w-auto" style="padding:8px 12px;flex-shrink:0"
-            onclick="AFP.tst('&#x1F4DE; Calling ${escHtml(d.name)}...')">
+            aria-label="Call ${escHtml(d.name)}"
+            data-name="${escHtml(d.name)}" data-mobile="${escHtml(d.mobile || "")}"
+            onclick="afpDial(this.dataset.name, this.dataset.mobile)">
             &#x1F4DE;
         </button>
     </div>`;
