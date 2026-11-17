@@ -715,9 +715,9 @@ document.addEventListener("DOMContentLoaded", function () {
     initReportPet();
 
     if (user && token) {
-        AFP.go(user.role === "citizen" ? "dashboard" : "admin");
+        AFP.go(user.role === "citizen" ? "dashboard" : "admin", { replace: true });
     } else {
-        AFP.go("splash");
+        AFP.go("splash", { replace: true });
     }
 
     // Close modals when clicking backdrop
@@ -726,4 +726,36 @@ document.addEventListener("DOMContentLoaded", function () {
             if (e.target === this) this.style.display = "none";
         });
     });
+
+    // Android hardware back (Capacitor / Cordova):
+    // 1) close top-most modal
+    // 2) go to previous in-app screen
+    // 3) fallback to home screen for current role
+    const handleAppBack = () => {
+        const openModals = Array.from(document.querySelectorAll(".modal-bg"))
+            .filter(m => m.style.display !== "none");
+        if (openModals.length) {
+            openModals[openModals.length - 1].style.display = "none";
+            return;
+        }
+
+        if (AFP.canGoBack()) {
+            AFP.goBack();
+            return;
+        }
+
+        const u = AFP.getUser();
+        const home = u
+            ? (u.role === "citizen" ? "dashboard" : "admin")
+            : "splash";
+        AFP.go(home, { replace: true });
+    };
+
+    document.addEventListener("backbutton", handleAppBack, false);
+    try {
+        const capApp = window.Capacitor?.Plugins?.App;
+        if (capApp?.addListener) {
+            capApp.addListener("backButton", handleAppBack);
+        }
+    } catch { }
 });

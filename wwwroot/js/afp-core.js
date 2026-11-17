@@ -4,14 +4,30 @@ const AFP = (() => {
 // This ensures the JWT is signed and verified by the SAME backend - fixes "Invalid or expired token".
 const API_BASE = "";
 
+// Capacitor WebView detection: in the mobile app there's no stable browser-tab
+// lifecycle, so sessionStorage can be purged when the app is background-killed.
+// We therefore persist auth in localStorage by default on mobile app builds.
+const _isCapacitorApp = !!(window.Capacitor || window.cordova || window.__CAPACITOR__);
+
 let _token   = null;
 let _refresh = null;
 let _user    = null;
-// "session" (default) � cleared when the tab/window closes.
-// "persistent"        � kept in localStorage until logout ("Remember me").
+// "session" (default) – cleared when the tab/window closes.
+// "persistent"        – kept in localStorage until logout ("Remember me").
 let _storage = null;
 
+// Screen history stack for hardware back navigation in mobile app.
+const _screenHistory = [];
+let _currentScreen = null;
+
 function _readStore() {
+    // In Capacitor app, always prefer localStorage to avoid session loss.
+    if (_isCapacitorApp) {
+        try {
+            const p = localStorage.getItem("afp_token");
+            if (p) return { store: localStorage, mode: "persistent" };
+        } catch { }
+    }
     // Prefer persistent (Remember me), fall back to session.
     try {
         const p = localStorage.getItem("afp_token");
@@ -117,7 +133,17 @@ async function uploadFile(path, file, fieldName = "photo") {
     }
 
     // ?? Router ????????????????????????????????????????????????????????????????
-    function go(screen) {
+    function go(screen, options = {}) {
+        const { replace = false, fromBack = false } = options || {};
+
+        if (!fromBack && _currentScreen) {
+            if (!replace && _currentScreen !== screen) {
+                _screenHistory.push(_currentScreen);
+            }
+        }
+
+        _currentScreen = screen;
+
         document.querySelectorAll(".afp-screen").forEach(s => s.classList.add("d-none"));
         const target = document.getElementById(`screen-${screen}`);
         if (target) {
@@ -146,13 +172,28 @@ async function uploadFile(path, file, fieldName = "photo") {
             if (loaders[screen]) loaders[screen]();
         } else {
             document.getElementById("screen-splash")?.classList.remove("d-none");
+            _currentScreen = "splash";
         }
         window.scrollTo(0, 0);
     }
 
+    function canGoBack() {
+        return _screenHistory.length > 0;
+    }
+
+    function goBack() {
+        if (!canGoBack()) return false;
+        const prev = _screenHistory.pop();
+        go(prev, { fromBack: true });
+        return true;
+    }
+
     // ?? Auth ??????????????????????????????????????????????????????????????????
     function _persist() {
-        const store = _storage === "persistent" ? localStorage : sessionStorage;
+        // In Capacitor app always persist to localStorage (survives app close).
+        const mode = _isCapacitorApp ? "persistent" : (_storage || "session");
+        const store = mode === "persistent" ? localStorage : sessionStorage;
+        _storage = mode;
         try {
             store.setItem("afp_token", _token || "");
             if (_refresh) store.setItem("afp_refresh", _refresh);
@@ -165,12 +206,13 @@ async function uploadFile(path, file, fieldName = "photo") {
         _token   = token || null;
         _refresh = refreshToken || null;
         _user    = user;
-        _storage = remember ? "persistent" : "session";
+        // On mobile app, force persistent login even if remember is unchecked.
+        _storage = _isCapacitorApp ? "persistent" : (remember ? "persistent" : "session");
         // Clear the OTHER storage bucket so we never have stale keys
         try {
-            (remember ? sessionStorage : localStorage).removeItem("afp_token");
-            (remember ? sessionStorage : localStorage).removeItem("afp_refresh");
-            (remember ? sessionStorage : localStorage).removeItem("afp_user");
+            (_storage === "persistent" ? sessionStorage : localStorage).removeItem("afp_token");
+            (_storage === "persistent" ? sessionStorage : localStorage).removeItem("afp_refresh");
+            (_storage === "persistent" ? sessionStorage : localStorage).removeItem("afp_user");
         } catch { }
         _persist();
     }
@@ -184,6 +226,8 @@ async function uploadFile(path, file, fieldName = "photo") {
         _user          = null;
         _storage       = null;
         _selectedPetId = null;
+        _screenHistory.length = 0;
+        _currentScreen = null;
 
         // 2. Wipe ALL persisted storage for this origin
         ["afp_token", "afp_refresh", "afp_user"].forEach(k => {
@@ -223,7 +267,7 @@ async function uploadFile(path, file, fieldName = "photo") {
         });
 
         // 7. Navigate to splash
-        go("splash");
+        go("splash", { replace: true });
     }
 
     // ?? Accessors ?????????????????????????????????????????????????????????????
@@ -236,7 +280,7 @@ async function uploadFile(path, file, fieldName = "photo") {
     return {
         GET, POST, PATCH, PUT, DELETE, uploadFile,
         spIco, daysTo, fmt,
-        tst, go,
+        tst, go, goBack, canGoBack,
         login, logout, setUser,
         getUser, getToken, getRefreshToken,
         getSelectedPetId, setSelectedPetId,
